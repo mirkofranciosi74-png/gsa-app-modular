@@ -5,7 +5,7 @@ import * as docRepo     from "./repo.js";
 import * as appRepo     from "../anagrafica/appartamentiRepo.js";
 import { tipiSpesaRepo } from "../anagrafica/tipiSpesaRepo.js";
 import { extract }      from "./extractor.js";
-import { salvaPdf, leggiPdf, eliminaPdf } from "../../shared/storage.js";
+import { salvaPdf, leggiPdf, eliminaPdf, pdfEsiste } from "../../shared/storage.js";
 
 const up = multer({
   storage: multer.memoryStorage(),
@@ -22,7 +22,8 @@ documentiRouter.get("/buchi-utenze",  h(async (q, r) => {
 documentiRouter.get("/",      h(async (q, r) => r.json(await docRepo.listAll(q.query))));
 documentiRouter.get("/:id",   h(async (q, r) => {
   const d = await docRepo.findById(q.params.id);
-  return d ? r.json(d) : r.status(404).json({ error: "Non trovato" });
+  if (!d) return r.status(404).json({ error: "Non trovato" });
+  return r.json({ ...d, pdf_disponibile: pdfEsiste(q.params.id) });
 }));
 documentiRouter.get("/:id/audit", h(async (q, r) => r.json(await docRepo.getAuditLog(q.params.id))));
 documentiRouter.get("/:id/pdf",   h(async (q, r) => {
