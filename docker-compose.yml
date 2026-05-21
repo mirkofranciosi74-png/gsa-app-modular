@@ -8,7 +8,7 @@ services:
       POSTGRES_USER:     gsa_user
       POSTGRES_PASSWORD: changeme
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U gsa_user -d gsa_db_2"]
       interval: 5s
