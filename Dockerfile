@@ -1,7 +1,7 @@
 FROM node:18-alpine
 
 # GraphicsMagick + Ghostscript per OCR su PDF scansionati
-RUN apk add --no-cache graphicsmagick ghostscript
+RUN apk add --no-cache graphicsmagick ghostscript postgresql-client
 
 WORKDIR /app
 

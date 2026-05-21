@@ -26,6 +26,8 @@ if (!existsSync(BASE_PATH)) {
  * @param {Buffer} buffer — contenuto del PDF
  * @returns {string} path relativo salvato (es. "storage/pdf/abc123.pdf")
  */
+export { BASE_PATH as PDF_STORAGE_PATH, ARCHIVIO_PATH as ARCHIVIO_STORAGE_PATH };
+
 export function salvaPdf(docId, buffer) {
   const filePath = join(BASE_PATH, `${docId}.pdf`);
   writeFileSync(filePath, buffer);

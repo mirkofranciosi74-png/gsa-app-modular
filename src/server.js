@@ -18,6 +18,7 @@ import { movimentiRouter }                       from "./modules/movimenti/route
 import { dashboardRouter, grigliaRouter,
          regoleRouter, reportRouter }            from "./modules/contabilita/routes.js";
 import { archivioTipiRouter, archivioRouter }    from "./modules/archivio/routes.js";
+import { adminRouter }                           from "./modules/admin/routes.js";
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
@@ -44,6 +45,7 @@ app.use("/api/regole",        regoleRouter);
 app.use("/api/report",        reportRouter);
 app.use("/api/archivio-tipi", archivioTipiRouter);
 app.use("/api/archivio",      archivioRouter);
+app.use("/api/admin",         adminRouter);
 
 app.use(errorHandler);
 
