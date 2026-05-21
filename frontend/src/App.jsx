@@ -11,6 +11,7 @@ import { Documenti }    from "./tabs/documenti.jsx";
 import { Versamenti }   from "./tabs/versamenti.jsx";
 import { Proprietari }  from "./tabs/Proprietari.jsx";
 import { Documentale }  from "./tabs/Documentale.jsx";
+import { Admin }        from "./tabs/Admin.jsx";
 
 const TABS = [
   { id: "dashboard",    label: "Dashboard",       icon: "ti-layout-dashboard" },
@@ -24,6 +25,7 @@ const TABS = [
   { id: "riparti",      label: "Riparti",         icon: "ti-adjustments-alt"  },
   { id: "tipi",         label: "Tipi Spesa",      icon: "ti-tag"              },
   { id: "documentale",  label: "Documentale",     icon: "ti-archive"          },
+  { id: "admin",        label: "Amministrazione", icon: "ti-settings"         },
 ];
 
 export default function App() {
@@ -80,6 +82,7 @@ export default function App() {
         {tab === "griglia"      && <Griglia />}
         {tab === "report"       && <Report />}
         {tab === "documentale"  && <Documentale />}
+        {tab === "admin"        && <Admin />}
       </main>
     </div>
   );

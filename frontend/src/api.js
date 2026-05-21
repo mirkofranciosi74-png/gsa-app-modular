@@ -251,6 +251,29 @@ export const associazioniApi = {
 };
 
 // ── REPORT ────────────────────────────────────────────────────────────────────
+// ── ADMIN ─────────────────────────────────────────────────────────────────────
+export const adminApi = {
+  backup: async () => {
+    const res = await fetch(`${BASE}/admin/backup`);
+    if (!res.ok) throw new Error(`Backup fallito: HTTP ${res.status}`);
+    const blob = await res.blob();
+    const date = new Date().toISOString().slice(0, 10);
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = `gsa_backup_${date}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  },
+  restore: file => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return up("/admin/restore", fd);
+  },
+};
+
 export const reportApi = {
   genera:  params => post("/report/genera", { params }),
   list:    ()     => get("/report"),
