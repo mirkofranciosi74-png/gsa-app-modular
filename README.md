@@ -12,12 +12,13 @@ Applicazione web fullstack per la gestione completa di spese condominiali, affit
 
 ## Indice
 
-1. [Struttura del progetto](#1-struttura-del-progetto)
-2. [Prerequisiti di sistema](#2-prerequisiti-di-sistema)
-3. [Installazione da repository Git](#3-installazione-da-repository-git)
-4. [Configurazione PostgreSQL](#4-configurazione-postgresql)
-5. [Configurazione variabili d'ambiente](#5-configurazione-variabili-dambiente)
-6. [Schema e migrazione del database](#6-schema-e-migrazione-del-database)
+1. [Avvio con Docker (consigliato)](#1-avvio-con-docker-consigliato)
+2. [Struttura del progetto](#2-struttura-del-progetto)
+3. [Prerequisiti di sistema](#3-prerequisiti-di-sistema)
+4. [Installazione da repository Git](#4-installazione-da-repository-git)
+5. [Configurazione PostgreSQL](#5-configurazione-postgresql)
+6. [Configurazione variabili d'ambiente](#6-configurazione-variabili-dambiente)
+7. [Schema e migrazione del database](#7-schema-e-migrazione-del-database)
 7. [Installazione dipendenze](#7-installazione-dipendenze)
 8. [Avvio del progetto](#8-avvio-del-progetto)
 9. [Architettura](#9-architettura)
@@ -25,7 +26,66 @@ Applicazione web fullstack per la gestione completa di spese condominiali, affit
 
 ---
 
-## 1. Struttura del progetto
+## 1. Avvio con Docker (consigliato)
+
+Il modo più rapido per avviare l'intera applicazione (backend + frontend + PostgreSQL) senza installare nulla sul sistema host.
+
+### Prerequisiti
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) installato e in esecuzione
+
+### Avvio
+
+```bash
+git clone https://github.com/mirkofranciosi74-png/gsa-app-modular.git
+cd gsa-app-modular
+docker compose up --build
+```
+
+Al primo avvio Docker:
+1. Scarica le immagini base (postgres:16, node:18, nginx)
+2. Builda il backend e il frontend
+3. Avvia PostgreSQL e attende che sia pronto
+4. Esegue automaticamente la migrazione del database
+5. Avvia il backend e il frontend
+
+Apri il browser su **http://localhost**
+
+### Comandi utili
+
+```bash
+# Avvia in background
+docker compose up -d
+
+# Visualizza i log in tempo reale
+docker compose logs -f
+
+# Log solo del backend
+docker compose logs -f backend
+
+# Ferma tutto
+docker compose down
+
+# Ferma e cancella anche i dati del DB e i file storage
+docker compose down -v
+```
+
+### Personalizzare le credenziali DB
+
+Per cambiare utente/password del database, modifica le variabili `environment` nel file `docker-compose.yml` (sezioni `db` e `backend`) prima del primo avvio. Devono essere coerenti tra i due servizi.
+
+### Persistenza dei dati
+
+I dati sono salvati in tre volumi Docker nominati:
+- `pgdata` — dati PostgreSQL
+- `storage_pdf` — PDF delle bollette/spese
+- `storage_archivio` — file del documentale
+
+I volumi sopravvivono a `docker compose down` e vengono eliminati solo con `docker compose down -v`.
+
+---
+
+## 2. Struttura del progetto
 
 ```
 gsa-app-modular/
