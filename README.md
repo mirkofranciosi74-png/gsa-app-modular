@@ -1,7 +1,12 @@
 # GSA — Gestione Spese Appartamenti v5
 
-Applicazione fullstack per la gestione delle spese condominiali.  
-Backend Node.js + PostgreSQL · Frontend React + Vite · OCR integrato · Report PDF.
+Applicazione web fullstack per la gestione completa di spese condominiali, affitti, versamenti, conguagli e documentazione relativa a più appartamenti.
+
+**Stack:** Node.js 18+ · Express · PostgreSQL 16 · React 18 · Vite 5 · OCR integrato · Report PDF
+
+**Documentazione:**
+- [Schema Entità-Relazioni](docs/er-schema.md)
+- [Funzionalità complete](docs/funzionalita.md)
 
 ---
 
@@ -12,10 +17,10 @@ Backend Node.js + PostgreSQL · Frontend React + Vite · OCR integrato · Report
 3. [Installazione da repository Git](#3-installazione-da-repository-git)
 4. [Configurazione PostgreSQL](#4-configurazione-postgresql)
 5. [Configurazione variabili d'ambiente](#5-configurazione-variabili-dambiente)
-6. [Creazione e aggiornamento del database](#6-creazione-e-aggiornamento-del-database)
+6. [Schema e migrazione del database](#6-schema-e-migrazione-del-database)
 7. [Installazione dipendenze](#7-installazione-dipendenze)
 8. [Avvio del progetto](#8-avvio-del-progetto)
-9. [Architettura del programma](#9-architettura-del-programma)
+9. [Architettura](#9-architettura)
 10. [Risoluzione problemi](#10-risoluzione-problemi)
 
 ---
@@ -23,57 +28,95 @@ Backend Node.js + PostgreSQL · Frontend React + Vite · OCR integrato · Report
 ## 1. Struttura del progetto
 
 ```
-gsa-app/                              ← cartella radice
+gsa-app-modular/
 │
 ├── .env                              ← variabili d'ambiente (NON committare)
 ├── .env.example                      ← template .env
 ├── .gitignore
-├── package.json                      ← dipendenze BACKEND
+├── package.json                      ← dipendenze backend
 ├── README.md
+│
+├── docs/
+│   ├── er-schema.md                  ← schema entità-relazioni
+│   └── funzionalita.md               ← descrizione completa funzionalità
 │
 ├── src/                              ← BACKEND Node.js (porta 3001)
 │   ├── server.js                     ← entry point Express
-│   ├── storage.js                    ← gestione file PDF su disco
-│   ├── db/
-│   │   ├── pool.js                   ← connessione PostgreSQL (pg.Pool)
-│   │   ├── schema.sql                ← schema v4 idempotente
-│   │   ├── migrate.js                ← applica schema.sql al DB
-│   │   └── seed.js                   ← dati di esempio opzionali
-│   ├── repositories/
-│   │   ├── appartamentiRepo.js       ← CRUD appartamenti + componenti
-│   │   ├── documentiRepo.js          ← CRUD documenti + pipeline OCR
-│   │   ├── movimentiRepo.js          ← CRUD movimenti + griglia economica
-│   │   └── regoleRepo.js             ← CRUD regole di riparto
-│   ├── pipeline/
-│   │   ├── extractor.js              ← estrazione testo da PDF (pdf-parse + OCR)
-│   │   └── reporter.js               ← generazione report PDF (pdfkit)
-│   └── routes/
-│       └── routes.js                 ← tutte le route REST /api/*
+│   │
+│   ├── shared/                       ← codice condiviso tra moduli
+│   │   ├── db/
+│   │   │   ├── pool.js               ← connessione PostgreSQL (pg.Pool)
+│   │   │   ├── schema.sql            ← schema v5 idempotente (unica fonte di verità)
+│   │   │   ├── migrate.js            ← applica schema.sql al DB
+│   │   │   ├── seed.js               ← dati di esempio opzionali
+│   │   │   └── migrations/           ← migrazioni storiche (002–013)
+│   │   ├── middleware.js             ← helper h() + errorHandler
+│   │   └── storage.js                ← lettura/scrittura file su disco
+│   │
+│   └── modules/                      ← moduli di dominio
+│       │
+│       ├── anagrafica/               ← appartamenti, proprietari, inquilini, tipi spesa
+│       │   ├── appartamentiRepo.js
+│       │   ├── proprietariRepo.js
+│       │   ├── tipiSpesaRepo.js
+│       │   ├── routes.js
+│       │   └── index.js
+│       │
+│       ├── documenti/                ← spese PDF + pipeline OCR
+│       │   ├── repo.js
+│       │   ├── extractor.js          ← pdf-parse + Tesseract OCR
+│       │   ├── routes.js
+│       │   └── index.js
+│       │
+│       ├── movimenti/                ← versamenti CRUD
+│       │   ├── repo.js
+│       │   ├── routes.js
+│       │   └── index.js
+│       │
+│       ├── contabilita/              ← griglia, dashboard, regole, report
+│       │   ├── grigliaSvc.js         ← logica griglia economica e dashboard
+│       │   ├── reportSvc.js          ← generazione report PDF
+│       │   ├── reportSalvatiRepo.js
+│       │   ├── ripartiRepo.js        ← CRUD regole di riparto
+│       │   ├── grigliaExport.js      ← export ZIP griglia
+│       │   ├── routes.js
+│       │   └── index.js
+│       │
+│       └── archivio/                 ← documentale generico
+│           ├── repo.js
+│           ├── routes.js
+│           └── index.js
+│
+├── storage/
+│   ├── pdf/                          ← PDF delle bollette/spese
+│   └── archivio/                     ← file del documentale generico
 │
 └── frontend/                         ← FRONTEND React + Vite (porta 5173)
-    ├── package.json                  ← dipendenze FRONTEND
+    ├── package.json
     ├── vite.config.js                ← proxy /api → localhost:3001
     ├── index.html
     └── src/
         ├── main.jsx
         ├── App.jsx                   ← layout + navigazione a tab
-        ├── api.js                    ← tutti i client REST verso il backend
-        ├── index.css                 ← design system (variabili CSS, componenti)
+        ├── api.js                    ← client REST verso il backend
+        ├── index.css
         ├── components/
-        │   └── ui.jsx                ← componenti UI riusabili (Btn, Modal, Badge…)
+        │   └── ui.jsx                ← componenti UI riusabili
         ├── utils/
-        │   └── formatters.js         ← utilità (euro, date italiane, ecc.)
+        │   └── formatters.js
         └── tabs/
-            ├── Dashboard.jsx         ← riepilogo generale
-            ├── Appartamenti.jsx      ← gestione appartamenti
-            ├── componenti.jsx        ← gestione inquilini/componenti
-            ├── tipologie.jsx         ← tipologie di spesa
-            ├── Documenti.jsx         ← upload e gestione documenti PDF
-            ├── Versamenti.jsx        ← registrazione versamenti
-            ├── riparti.jsx           ← regole di riparto delle spese
-            ├── griglia.jsx           ← griglia economica per periodo
-            ├── report.jsx            ← generazione e salvataggio report
-            └── altri.jsx             ← re-export di compatibilità
+            ├── Dashboard.jsx         ← KPI e saldi
+            ├── appartamenti.jsx      ← anagrafica appartamenti
+            ├── Proprietari.jsx       ← anagrafica proprietari
+            ├── componenti.jsx        ← lista inquilini
+            ├── tipologie.jsx         ← tipi di spesa
+            ├── documenti.jsx         ← spese e bollette PDF
+            ├── versamenti.jsx        ← entrate e versamenti
+            ├── riparti.jsx           ← regole di riparto
+            ├── griglia.jsx           ← griglia economica
+            ├── report.jsx            ← report PDF
+            ├── Documentale.jsx       ← archivio documentale
+            └── altri.jsx
 ```
 
 ---
@@ -101,6 +144,8 @@ node -v    # deve mostrare v18.x.x o superiore
 npm -v
 ```
 
+---
+
 ### PostgreSQL 16
 
 **macOS:**
@@ -108,7 +153,8 @@ npm -v
 brew install postgresql@16
 brew services start postgresql@16
 export PATH="/opt/homebrew/opt/postgresql@16/bin:$PATH"
-# Aggiungi la riga export anche a ~/.zshrc per renderla permanente
+# Rendi permanente aggiungendo la riga a ~/.zshrc
+echo 'export PATH="/opt/homebrew/opt/postgresql@16/bin:$PATH"' >> ~/.zshrc
 ```
 
 **Ubuntu/Debian:**
@@ -125,6 +171,8 @@ Verifica:
 ```bash
 psql --version
 ```
+
+---
 
 ### GraphicsMagick e Ghostscript (richiesti per OCR su PDF scansionati)
 
@@ -148,17 +196,16 @@ gm -version
 gs --version
 ```
 
+> Se GraphicsMagick non è installato, i PDF testuali vengono processati normalmente con pdf-parse. Solo i PDF scansionati (immagini) richiedono GraphicsMagick + Ghostscript per l'OCR.
+
 ---
 
 ## 3. Installazione da repository Git
 
 ```bash
-# Clona il repository
-git clone <url-repository> gsa-app
-cd gsa-app
+git clone <url-repository> gsa-app-modular
+cd gsa-app-modular
 ```
-
-Se stai lavorando direttamente in una cartella già esistente, assicurati di essere nella root del progetto (dove si trova `package.json`).
 
 ---
 
@@ -176,16 +223,16 @@ psql postgres
 sudo -u postgres psql
 ```
 
-**Windows** (apri "SQL Shell (psql)" dal menu Start e premi Invio alle prime domande):
+**Windows** — apri "SQL Shell (psql)" dal menu Start e premi Invio alle prime domande:
 ```
 Server [localhost]: ↵
 Database [postgres]: ↵
 Port [5432]: ↵
 Username [postgres]: ↵
-Password: <password scelta durante installazione>
+Password: <password scelta durante l'installazione>
 ```
 
-Esegui questi comandi nella console `psql`:
+Una volta dentro la console `psql`, esegui:
 
 ```sql
 CREATE USER gsa_user WITH PASSWORD 'changeme';
@@ -204,16 +251,19 @@ psql -h localhost -U gsa_user -d gsa_db -c "SELECT version();"
 
 ## 5. Configurazione variabili d'ambiente
 
-Crea il file `.env` nella cartella `gsa-app/`:
+Crea il file `.env` nella cartella radice del progetto:
 
 ```bash
 cp .env.example .env
 ```
 
-Apri `.env` e compila con i tuoi valori:
+Apri `.env` e compila:
 
 ```
+# Porta backend (default 3001)
 PORT=3001
+
+# PostgreSQL
 DB_HOST=localhost
 DB_PORT=5432
 DB_NAME=gsa_db
@@ -221,7 +271,7 @@ DB_USER=gsa_user
 DB_PASSWORD=changeme
 DB_SSL=false
 
-# Dimensione massima upload PDF (default 20 MB)
+# Dimensione massima upload file (default 20 MB)
 MAX_FILE_SIZE=20971520
 
 # Soglia caratteri sotto cui attiva OCR (default 120)
@@ -230,19 +280,20 @@ OCR_MIN_CHARS=120
 # Lingua Tesseract per OCR
 TESSERACT_LANG=ita
 
-# Percorso storage PDF (opzionale, default: ./storage/pdf/)
+# Percorso storage PDF bollette (default: ./storage/pdf/)
 # STORAGE_PATH=/percorso/assoluto/storage/pdf
+
+# Percorso storage archivio documentale (default: ./storage/archivio/)
+# ARCHIVIO_PATH=/percorso/assoluto/storage/archivio
 ```
 
-> **Importante:** il file `.env` non viene mai committato su Git. Non contiene mai credenziali di produzione nel repository.
+> Il file `.env` non viene mai committato su Git (è in `.gitignore`).
 
 ---
 
-## 6. Creazione e aggiornamento del database
+## 6. Schema e migrazione del database
 
-Lo script di migrazione applica `src/db/schema.sql`, che è **idempotente**:
-funziona sia su un database vuoto (prima installazione) sia su un database esistente
-allineato a qualsiasi versione precedente dello schema.
+Lo script di migrazione applica `src/shared/db/schema.sql`, che è **idempotente**: funziona sia su un database vuoto (prima installazione) sia su un database esistente a qualsiasi versione precedente dello schema.
 
 ```bash
 npm run db:migrate
@@ -254,26 +305,48 @@ Output atteso:
 ✅  Schema applicato.
 ```
 
-**Inserimento dati di esempio (opzionale):**
+**Dati iniziali (opzionale):**
 ```bash
 npm run db:seed
 ```
-Inserisce 6 tipologie di spesa predefinite (Acqua, Luce, Gas, TARI, Condominio, Altro)
-e un appartamento di esempio con componenti.
+Inserisce 6 tipologie di spesa predefinite: Acqua, Luce, Gas, TARI, Condominio, Altro.
 
-> `npm run db:migrate` è sicuro da rieseguire in qualsiasi momento: non distrugge dati esistenti.
+> `npm run db:migrate` è sicuro da rieseguire in qualsiasi momento: non distrugge dati esistenti. Aggiunge automaticamente tabelle e colonne mancanti.
+
+### Versione schema attuale (v5)
+
+Le principali tabelle del database sono:
+
+| Tabella | Descrizione |
+|---------|-------------|
+| `appartamenti` | Anagrafica appartamenti |
+| `proprietari` | Anagrafica proprietari |
+| `appartamento_proprietari` | Associazione proprietario ↔ appartamento con % e periodo |
+| `componenti` | Inquilini con quota affitto, caparra e date validità |
+| `tipi_spesa` | Categorie di spesa |
+| `documenti` | Bollette/fatture PDF con testo estratto e importo |
+| `documenti_audit` | Log modifiche ai documenti |
+| `movimenti` | Versamenti con segno, tipo, data e mese riferimento |
+| `regole_riparto` | Regole distribuzione spese e entrate |
+| `regole_riparto_esclusi/inclusi` | Inquilini esclusi/inclusi da una regola |
+| `regole_riparto_esclusi/inclusi_prop` | Proprietari esclusi/inclusi (riparto entrate) |
+| `report_salvati` | Report PDF generati e salvati |
+| `archivio_tipi_documento` | Classificazione documenti archiviati |
+| `archivio_documenti` | Documenti generici (contratti, verbali, planimetrie…) |
+| `archivio_associazioni` | Collegamento documento ↔ entità |
+
+Per lo schema completo: [docs/er-schema.md](docs/er-schema.md)
 
 ---
 
 ## 7. Installazione dipendenze
 
-Installa le dipendenze del backend:
+**Backend** (dalla cartella radice):
 ```bash
-# Nella cartella gsa-app/
 npm install
 ```
 
-Installa le dipendenze del frontend:
+**Frontend:**
 ```bash
 cd frontend
 npm install
@@ -288,7 +361,7 @@ Apri **due terminali separati**.
 
 **Terminale 1 — backend:**
 ```bash
-cd gsa-app
+cd gsa-app-modular
 npm run dev
 ```
 Output atteso:
@@ -299,7 +372,7 @@ Output atteso:
 
 **Terminale 2 — frontend:**
 ```bash
-cd gsa-app/frontend
+cd gsa-app-modular/frontend
 npm run dev
 ```
 Output atteso:
@@ -316,152 +389,105 @@ curl http://localhost:3001/api/health
 # Risposta: {"ok":true,"ts":"..."}
 ```
 
+### Avvio in produzione
+
+```bash
+# Build frontend
+cd frontend && npm run build && cd ..
+
+# Avvia backend (serve anche i file statici del frontend con un reverse proxy)
+npm start
+```
+
+Per la produzione si consiglia di usare **nginx** o **Caddy** come reverse proxy:
+- servire `/` dai file statici della directory `frontend/dist/`
+- girare `/api/*` al backend su `localhost:3001`
+
 ---
 
-## 9. Architettura del programma
+## 9. Architettura
 
-### 9.1 Backend (Node.js + Express)
+### 9.1 Monolite modulare
 
-Il backend è strutturato a livelli:
+Il backend è organizzato come **monolite modulare**: un unico processo Node.js con moduli di dominio separati che comunicano attraverso interfacce pubbliche (`index.js`). Nessuna dipendenza SQL cross-modulo.
+
+```
+server.js
+  └─ monta i router di ciascun modulo su /api/<risorsa>
+
+src/modules/
+  anagrafica/    → /api/appartamenti, /api/proprietari, /api/associazioni, /api/tipi-spesa
+  documenti/     → /api/documenti
+  movimenti/     → /api/movimenti
+  contabilita/   → /api/griglia, /api/dashboard, /api/regole, /api/report
+  archivio/      → /api/archivio, /api/archivio-tipi
+```
+
+Ogni modulo ha:
+- `routes.js` — definizione endpoint REST
+- `repo.js` / `*Repo.js` — query SQL e logica di dominio
+- `index.js` — API pubblica verso altri moduli (se necessaria)
+
+### 9.2 Livelli
 
 | Livello | File | Responsabilità |
 |---------|------|----------------|
-| Entry point | `src/server.js` | Inizializza Express, CORS, multer, routes |
-| Routes | `src/routes/routes.js` | Definisce tutti gli endpoint REST `/api/*` |
-| Repositories | `src/repositories/*.js` | Query SQL, logica di dominio |
-| Pipeline | `src/pipeline/extractor.js` | Estrazione testo da PDF |
-| Pipeline | `src/pipeline/reporter.js` | Generazione report PDF con pdfkit |
-| Storage | `src/storage.js` | Salvataggio/lettura file PDF su disco |
-| DB | `src/db/pool.js` | Pool di connessioni PostgreSQL |
-| DB | `src/db/schema.sql` | Schema v5 idempotente |
+| Entry point | `src/server.js` | Inizializza Express, monta i router |
+| Routes | `modules/*/routes.js` | Definisce endpoint REST del modulo |
+| Repository | `modules/*/repo.js` | Query SQL, transazioni |
+| Service | `modules/contabilita/grigliaSvc.js` | Logica di calcolo griglia, dashboard |
+| Pipeline | `modules/documenti/extractor.js` | OCR su PDF |
+| Report | `modules/contabilita/reportSvc.js` | Generazione PDF con pdfkit |
+| Storage | `shared/storage.js` | Lettura/scrittura file su disco |
+| DB | `shared/db/pool.js` | Pool connessioni PostgreSQL |
 
-**Repository principali:**
+### 9.3 Frontend
 
-- **`appartamentiRepo.js`** — CRUD appartamenti, componenti (inquilini), quote affitto, date validità
-- **`documentiRepo.js`** — upload documenti PDF, estrazione testo, associazione spese per componente tramite regole di riparto
-- **`movimentiRepo.js`** — versamenti, griglia economica aggregata per periodo, calcolo conguagli
-- **`regoleRepo.js`** — regole di riparto (per tipologia, modalità includi/escludi, validità temporale, quote percentuali)
-
-**Endpoint principali:**
-
-```
-GET/POST/PUT/DELETE  /api/appartamenti
-GET/POST/PUT/DELETE  /api/componenti
-GET/POST/PUT/DELETE  /api/tipi-spesa
-GET/POST/PUT/DELETE  /api/documenti
-GET/POST/PUT/DELETE  /api/movimenti
-GET/POST/PUT/DELETE  /api/regole
-GET                  /api/griglia?periodoDA=YYYY-MM&periodoA=YYYY-MM
-POST                 /api/report/genera
-GET/POST/DELETE      /api/report
-GET                  /api/health
-```
-
-### 9.2 Pipeline OCR
-
-Quando viene caricato un PDF:
-
-1. **pdf-parse** estrae il testo direttamente (PDF testuali)
-2. Se il testo estratto è inferiore a `OCR_MIN_CHARS` caratteri (PDF scansionati):
-   - **pdf2pic** converte il PDF in immagini usando GraphicsMagick + Ghostscript
-   - **Tesseract.js** esegue OCR su ciascuna pagina in lingua italiana
-3. Il testo risultante viene salvato in DB; il file PDF grezzo in `./storage/pdf/{uuid}.pdf`
-
-### 9.3 Frontend (React + Vite)
-
-Il frontend è una SPA con navigazione a tab. Vite proxia automaticamente
-tutte le chiamate `/api` al backend su porta 3001, quindi non servono URL hardcoded.
-
-**Struttura dei tab:**
+SPA React con navigazione a tab. Vite proxia `/api/*` al backend (porta 3001) in sviluppo.
 
 | Tab | Componente | Funzione |
 |-----|-----------|----------|
-| Dashboard | `Dashboard.jsx` | KPI, riepilogo saldi, accesso rapido |
-| Appartamenti | `Appartamenti.jsx` | Anagrafica appartamenti e inquilini |
-| Inquilini | `componenti.jsx` | Lista completa inquilini, storico, disattivazione |
-| Tipologie | `tipologie.jsx` | Gestione tipologie di spesa |
-| Documenti | `Documenti.jsx` | Upload PDF, visualizzazione testo estratto/OCR |
-| Versamenti | `Versamenti.jsx` | Registrazione versamenti, importazione da CSV |
-| Riparti | `riparti.jsx` | Regole di ripartizione spese per appartamento |
-| Griglia Econ. | `griglia.jsx` | Griglia periodo: spese, versamenti, affitto, conguaglio |
-| Report | `report.jsx` | Generazione, salvataggio e download report PDF |
+| Dashboard | `Dashboard.jsx` | KPI annuali, saldi inquilini e proprietari |
+| Griglia Economica | `griglia.jsx` | Griglia per periodo: spese, versamenti, conguaglio |
+| Report | `report.jsx` | Generazione e salvataggio report PDF |
+| Appartamenti | `appartamenti.jsx` | Anagrafica appartamenti con documenti allegati |
+| Proprietari | `Proprietari.jsx` | Anagrafica proprietari con documenti allegati |
+| Inquilini | `componenti.jsx` | Lista inquilini, propagazione date, documenti |
+| Spese | `documenti.jsx` | Upload PDF, OCR, gestione bollette, buchi utenze |
+| Entrate | `versamenti.jsx` | Versamenti, import CSV, rimborsi |
+| Riparti | `riparti.jsx` | Regole riparto spese e entrate |
+| Tipi Spesa | `tipologie.jsx` | Categorie di spesa |
+| Documentale | `Documentale.jsx` | Archivio generico (contratti, verbali…) |
 
-**Calcolo conguaglio (Griglia Economica):**
+### 9.4 Pipeline OCR
+
+Quando viene caricato un PDF di spesa:
+
+1. **pdf-parse** estrae il testo direttamente (PDF testuali)
+2. Se il testo è inferiore a `OCR_MIN_CHARS` caratteri (PDF scansionati):
+   - **pdf2pic** converte il PDF in immagini tramite GraphicsMagick + Ghostscript
+   - **Tesseract.js** esegue OCR per ogni pagina in italiano
+3. Il sistema propone automaticamente: importo, fornitore, periodo, tipo spesa
+4. Il file PDF viene salvato in `storage/pdf/{uuid}.pdf`
+
+### 9.5 Calcolo conguaglio
 
 ```
 Conguaglio = Versato − Spese dovute − Affitto
 ```
 
+- **Versato**: somma dei movimenti nel periodo (segno applicato: rimborsi con -1)
+- **Spese dovute**: quota di competenza calcolata applicando le regole di riparto all'importo totale delle bollette del periodo
+- **Affitto**: `quota_affitto × numero_mesi_di_competenza`
 - Positivo (verde) = credito dell'inquilino
 - Negativo (rosso) = importo ancora da versare
-
-Le spese dovute sono calcolate dal backend in base alle regole di riparto.
-L'affitto è calcolato sul frontend da `quota_affitto × numero_mesi_di_validità`.
-
-### 9.4 Tab Versamenti — dettaglio funzionalità
-
-Ogni versamento registra i seguenti attributi aggiuntivi rispetto al semplice importo:
-
-| Campo | Valori | Descrizione |
-|-------|--------|-------------|
-| `tipo_versamento` | `affitto` · `conguaglio` · `rimborso` · `altro` | Natura del pagamento |
-| `data_versamento` | data (GG/MM/AAAA) | Giorno fisico di ricezione (bonifico/contanti), solo per voci una-tantum |
-| `mese_riferimento` | AAAA-MM | Mese contabile a cui si riferisce il pagamento; proposto automaticamente dalla data versamento |
-
-**Importazione da CSV:**
-
-Il pulsante **Importa CSV** apre un wizard riga per riga. Il file deve avere il formato:
-
-```
-giorno, descrizione, importo
-15/01/2025, Rossi affitto gennaio, 750
-2025-01-20, Mario Bianchi conguaglio, 120.50
-```
-
-- Separatori supportati: virgola o punto e virgola
-- Date: `GG/MM/AAAA` oppure `AAAA-MM-GG`
-- Per ogni riga il sistema propone: mese di riferimento dalla data, tipo = affitto, inquilino rilevato automaticamente se il nome o cognome compare nella descrizione
-- L'utente può modificare tutti i campi prima di salvare o saltare la riga
-- Viene mostrato un **avviso** se per lo stesso inquilino esiste già un versamento nella stessa data
-
-### 9.5 Schema del database (v5)
-
-Le tabelle principali:
-
-| Tabella | Descrizione |
-|---------|-------------|
-| `appartamenti` | Anagrafica appartamenti |
-| `componenti` | Inquilini/componenti, con `quota_affitto` e date di validità |
-| `tipi_spesa` | Tipologie di spesa (Acqua, Luce, Gas…) |
-| `documenti` | Documenti PDF con testo estratto e importo |
-| `doc_righe` | Righe di spesa estratte da ciascun documento |
-| `movimenti` | Versamenti con segno, tipo, data e mese di riferimento |
-| `regole_riparto` | Regole di ripartizione spese per appartamento e tipologia |
-| `regole_riparto_esclusi` | Componenti esclusi da una regola (modalità `escludi`) |
-| `regole_riparto_inclusi` | Componenti inclusi in una regola (modalità `includi`) |
-| `report_salvati` | Report salvati (nome, parametri, testo, PDF base64) |
-
-**Colonne rilevanti della tabella `movimenti`:**
-
-| Colonna | Tipo | Descrizione |
-|---------|------|-------------|
-| `segno` | `SMALLINT` (1 / -1) | Direzione: +1 entrata, -1 rimborso/uscita |
-| `tipo_versamento` | enum | `affitto` · `conguaglio` · `rimborso` · `altro` |
-| `data_versamento` | `DATE` | Giorno fisico di ricezione (una-tantum) |
-| `mese_riferimento` | `VARCHAR(7)` | Mese contabile AAAA-MM (una-tantum) |
-| `periodicita` | enum | `una_tantum` · `mensile` · … · `annuale` |
-| `validita_da` / `validita_a` | `DATE` | Periodo contabile del versamento |
-
-**View principali:**
-- `v_saldo_componenti` — saldo netto per componente (versato − dovuto)
-- `v_movimenti_dettaglio` — movimenti con importo netto, tipo versamento, data e mese riferimento
 
 ---
 
 ## 10. Risoluzione problemi
 
-### `DB: undefined:undefined/undefined` all'avvio del backend
-Il file `.env` non viene trovato. Deve stare nella cartella `gsa-app/` (stessa cartella di `package.json`).
+### `Mancano in .env: DB_HOST, ...` all'avvio del backend
+Il file `.env` non viene trovato. Deve stare nella cartella radice (dove si trova `package.json`).
 ```bash
 ls -la | grep env   # deve comparire .env
 ```
@@ -480,10 +506,10 @@ psql -U postgres -c "ALTER USER gsa_user WITH PASSWORD 'changeme';"
 ```
 
 ### Il frontend mostra pagina bianca o errori di rete
-Il backend non è avviato. Verifica che il Terminale 1 mostri `✅ Backend → http://localhost:3001`.
+Il backend non è avviato. Verifica che il terminale del backend mostri `✅ Backend → http://localhost:3001`.
 
 ### `GraphicsMagick not found` durante upload PDF
-GraphicsMagick non è nel PATH.
+GraphicsMagick non è nel PATH. L'OCR su PDF scansionati non funzionerà; i PDF testuali continuano a funzionare normalmente.
 ```bash
 which gm
 # macOS Apple Silicon:
@@ -492,10 +518,11 @@ echo 'export PATH="/opt/homebrew/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
 
 ### `Cannot find module` all'avvio
 ```bash
-cd gsa-app
+# Backend
 rm -rf node_modules package-lock.json
 npm install
-# Per il frontend:
+
+# Frontend
 cd frontend && rm -rf node_modules package-lock.json && npm install
 ```
 
@@ -510,4 +537,11 @@ Lo schema è idempotente: riesegui semplicemente la migrazione.
 ```bash
 npm run db:migrate
 ```
-Il comando rileva automaticamente le colonne e tabelle mancanti e le aggiunge senza toccare i dati esistenti.
+Rileva automaticamente le colonne e tabelle mancanti e le aggiunge senza toccare i dati esistenti.
+
+### La porta 3001 è già in uso
+```bash
+lsof -ti :3001 | xargs kill -9
+npm run dev
+```
+Il comando `npm run dev` include già questo cleanup automaticamente.
