@@ -11,7 +11,7 @@ import { dirname } from "path";
 
 const __dir      = dirname(fileURLToPath(import.meta.url));
 const BASE_PATH  = resolve(
-  process.env.STORAGE_PATH || join(__dir, "..", "storage", "pdf")
+  process.env.STORAGE_PATH || join(__dir, "..", "..", "storage", "pdf")
 );
 
 // Crea la cartella al primo avvio se non esiste
@@ -66,7 +66,7 @@ export function pdfEsiste(docId) {
 
 // ─── Archivio documentale (file generici) ────────────────────────────────────
 const ARCHIVIO_PATH = resolve(
-  process.env.ARCHIVIO_PATH || join(__dir, "..", "storage", "archivio")
+  process.env.ARCHIVIO_PATH || join(__dir, "..", "..", "storage", "archivio")
 );
 if (!existsSync(ARCHIVIO_PATH)) {
   mkdirSync(ARCHIVIO_PATH, { recursive: true });
