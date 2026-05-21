@@ -407,12 +407,13 @@ export function Documenti() {
                     <td><StatoBadge stato={d.stato} /></td>
                     <td>
                       <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
-                        <Btn variant="secondary" size="sm" onClick={() => setEdit({
-                            doc: { ...d },
-                            // Usa l'endpoint server se il PDF è stato caricato,
-                            // altrimenti null (documenti creati manualmente)
-                            pdfUrl: documentiApi.pdfUrl(d.id),
-                          })}>
+                        <Btn variant="secondary" size="sm" onClick={async () => {
+                            const full = await documentiApi.get(d.id);
+                            setEdit({
+                              doc: { ...full },
+                              pdfUrl: full.pdf_disponibile ? documentiApi.pdfUrl(d.id) : null,
+                            });
+                          }}>
                           <i className="ti ti-edit" /> Modifica
                         </Btn>
                         <Btn variant="danger" size="sm"
@@ -526,6 +527,11 @@ function DocEditModal({ doc: initDoc, pdfUrl, apps, tipi, queueLeft = 0, onSave,
                 <i className={`ti ${showPdf ? "ti-eye-off" : "ti-eye"}`} />
                 {showPdf ? "Nascondi" : "Mostra PDF"}
               </Btn>
+            )}
+            {!pdfUrl && (
+              <span style={{ fontSize: 11, color: "var(--text2)", display: "flex", alignItems: "center", gap: 4 }}>
+                <i className="ti ti-file-off" /> PDF non disponibile
+              </span>
             )}
             <Btn variant="ghost" size="sm" onClick={onClose}><i className="ti ti-x" /></Btn>
           </div>
