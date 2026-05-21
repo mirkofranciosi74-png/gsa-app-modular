@@ -409,10 +409,14 @@ export function Documenti() {
                       <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
                         <Btn variant="secondary" size="sm" onClick={async () => {
                             const full = await documentiApi.get(d.id);
-                            setEdit({
-                              doc: { ...full },
-                              pdfUrl: full.pdf_disponibile ? documentiApi.pdfUrl(d.id) : null,
-                            });
+                            let pdfUrl = null;
+                            if (full.pdf_disponibile) {
+                              try {
+                                const res = await fetch(documentiApi.pdfUrl(d.id));
+                                if (res.ok) pdfUrl = URL.createObjectURL(await res.blob());
+                              } catch {}
+                            }
+                            setEdit({ doc: { ...full }, pdfUrl });
                           }}>
                           <i className="ti ti-edit" /> Modifica
                         </Btn>
@@ -632,12 +636,18 @@ function DocEditModal({ doc: initDoc, pdfUrl, apps, tipi, queueLeft = 0, onSave,
                              alignItems: "center", gap: 6 }}>
                 <i className="ti ti-file-type-pdf" style={{ color: "#ef4444" }} /> PDF originale
               </div>
-              <iframe
-                src={pdfUrl}
-                style={{ flex: 1, border: "none", width: "100%" }}
-                title="Anteprima PDF"
-                onError={() => { setPdfOk(false); setShowPdf(false); }}
-              />
+              <object
+                data={pdfUrl}
+                type="application/pdf"
+                style={{ flex: 1, border: "none", width: "100%", height: "100%" }}
+              >
+                <p style={{ color: "#fff", padding: 20 }}>
+                  Il browser non supporta la preview PDF.{" "}
+                  <a href={pdfUrl} target="_blank" rel="noreferrer" style={{ color: "#60a5fa" }}>
+                    Apri in una nuova scheda
+                  </a>
+                </p>
+              </object>
             </div>
           )}
         </div>
