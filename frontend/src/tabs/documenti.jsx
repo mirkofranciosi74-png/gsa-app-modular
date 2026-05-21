@@ -467,23 +467,27 @@ export function Documenti() {
 // Modal di validazione documento
 // ─────────────────────────────────────────────────────────────────────────────
 function DocEditModal({ doc: initDoc, pdfUrl, apps, tipi, queueLeft = 0, onSave, onSkip, onClose }) {
-  const [doc,          setDoc]     = useState(initDoc);
-  const [proprietari,  setProp]    = useState([]);
+  const [doc,         setDoc]   = useState(initDoc);
+  const [showPdf,     setShowPdf] = useState(!!pdfUrl);
+  const [proprietari, setProp]  = useState([]);
 
   useEffect(() => {
     proprietariApi.list().then(setProp).catch(() => {});
   }, []);
 
+  useEffect(() => {
+    setShowPdf(!!pdfUrl);
+  }, [pdfUrl]);
+
   // Auto-imposta il proprietario di default quando cambia appartamento o periodo
   useEffect(() => {
     if (!doc.appartamento_id || !doc.periodo_da) return;
-    if (doc.pagato_da_proprietario_id) return; // già impostato
+    if (doc.pagato_da_proprietario_id) return;
     const data = doc.periodo_da + "-01";
     associazioniApi.defaultPerData(doc.appartamento_id, data)
       .then(r => { if (r?.proprietario_id) setDoc(p => ({ ...p, pagato_da_proprietario_id: r.proprietario_id })); })
       .catch(() => {});
   }, [doc.appartamento_id, doc.periodo_da]);
-
 
   const sd       = v => setDoc(p => ({ ...p, ...v }));
   const appOpts  = apps.map(a => ({ value: a.id, label: a.nome }));
@@ -499,7 +503,7 @@ function DocEditModal({ doc: initDoc, pdfUrl, apps, tipi, queueLeft = 0, onSave,
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.78)", display: "flex",
                   alignItems: "center", justifyContent: "center", zIndex: 400, padding: 12 }}>
       <div style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: 12,
-                    width: "100%", maxWidth: 580, height: "92vh",
+                    width: "100%", maxWidth: showPdf && pdfUrl ? 1120 : 580, height: "92vh",
                     display: "flex", flexDirection: "column", transition: "max-width 0.2s" }}>
 
         {/* Header */}
@@ -520,8 +524,10 @@ function DocEditModal({ doc: initDoc, pdfUrl, apps, tipi, queueLeft = 0, onSave,
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             {pdfUrl && (
-              <Btn variant="secondary" size="sm" onClick={() => window.open(pdfUrl, "_blank")}>
-                <i className="ti ti-file-type-pdf" /> Apri PDF
+              <Btn variant={showPdf ? "primary" : "secondary"} size="sm"
+                   onClick={() => setShowPdf(s => !s)}>
+                <i className={`ti ${showPdf ? "ti-eye-off" : "ti-eye"}`} />
+                {showPdf ? "Nascondi PDF" : "Mostra PDF"}
               </Btn>
             )}
             {!pdfUrl && (
@@ -620,6 +626,25 @@ function DocEditModal({ doc: initDoc, pdfUrl, apps, tipi, queueLeft = 0, onSave,
             </div>
           </div>
 
+          {/* Anteprima PDF inline */}
+          {showPdf && pdfUrl && (
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, background: "#111" }}>
+              <div style={{ padding: "6px 14px", fontSize: 11, color: "var(--text2)",
+                            borderBottom: "1px solid var(--border)", display: "flex",
+                            alignItems: "center", justifyContent: "space-between" }}>
+                <span><i className="ti ti-file-type-pdf" style={{ color: "#ef4444" }} /> PDF originale</span>
+                <a href={pdfUrl} target="_blank" rel="noreferrer"
+                   style={{ color: "var(--accent)", fontSize: 11, textDecoration: "none" }}>
+                  <i className="ti ti-external-link" /> Apri
+                </a>
+              </div>
+              <iframe
+                src={pdfUrl}
+                style={{ flex: 1, border: "none", width: "100%" }}
+                title="Anteprima PDF"
+              />
+            </div>
+          )}
         </div>
 
         {/* Footer */}
