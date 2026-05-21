@@ -1,6 +1,6 @@
 -- ============================================================
 -- GSA — Gestione Spese Appartamenti
--- Schema PostgreSQL v4 — idempotente
+-- Schema PostgreSQL v5 — idempotente
 --
 -- Funziona sia su un DB VUOTO (crea tutto da zero)
 -- sia su un DB ESISTENTE a qualsiasi versione precedente
@@ -88,8 +88,22 @@ CREATE TABLE IF NOT EXISTS tipi_spesa (
   CONSTRAINT tipi_spesa_desc_uq UNIQUE (descrizione)
 );
 
+-- ── PROPRIETARI ───────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS proprietari (
+  id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  nome       TEXT        NOT NULL,
+  cognome    TEXT,
+  indirizzo  TEXT,
+  telefono   TEXT,
+  email      TEXT,
+  attivo     BOOLEAN     NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- ── COMPONENTI ────────────────────────────────────────────────
--- quota_affitto: quota mensile affitto (era quota_mensile / quota in versioni precedenti)
+-- quota_affitto: quota mensile affitto
+-- caparra: importo cauzione versata all'ingresso
 CREATE TABLE IF NOT EXISTS componenti (
   id              UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
   appartamento_id UUID         NOT NULL
@@ -101,6 +115,7 @@ CREATE TABLE IF NOT EXISTS componenti (
   percentuale     NUMERIC(5,2) NOT NULL DEFAULT 0
                                CHECK (percentuale BETWEEN 0 AND 100),
   quota_affitto   NUMERIC(10,2)          DEFAULT 0,
+  caparra         NUMERIC(10,2)          DEFAULT NULL,
   validita_da     DATE,
   validita_a      DATE,
   attivo          BOOLEAN      NOT NULL DEFAULT TRUE,
@@ -108,26 +123,44 @@ CREATE TABLE IF NOT EXISTS componenti (
   updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
+-- ── ASSOCIAZIONE PROPRIETARIO-APPARTAMENTO ────────────────────
+CREATE TABLE IF NOT EXISTS appartamento_proprietari (
+  id                    UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+  appartamento_id       UUID         NOT NULL REFERENCES appartamenti(id) ON DELETE CASCADE,
+  proprietario_id       UUID         NOT NULL REFERENCES proprietari(id)  ON DELETE CASCADE,
+  percentuale_proprieta NUMERIC(5,2) NOT NULL DEFAULT 100
+                        CHECK (percentuale_proprieta BETWEEN 0 AND 100),
+  data_inizio           DATE         NOT NULL,
+  data_fine             DATE,
+  proprietario_default  BOOLEAN      NOT NULL DEFAULT FALSE,
+  created_at            TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  updated_at            TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT ap_periodo_chk CHECK (data_fine IS NULL OR data_fine >= data_inizio)
+);
+
 -- ── DOCUMENTI ─────────────────────────────────────────────────
+-- pagato_da_proprietario_id: proprietario che ha anticipato la spesa
 CREATE TABLE IF NOT EXISTS documenti (
-  id                UUID              PRIMARY KEY DEFAULT gen_random_uuid(),
-  appartamento_id   UUID              REFERENCES appartamenti(id) ON DELETE SET NULL,
-  tipo_spesa_id     UUID              REFERENCES tipi_spesa(id)   ON DELETE SET NULL,
-  nome_file         TEXT              NOT NULL,
-  file_hash         TEXT,
-  fornitore         TEXT,
-  numero_doc        TEXT,
-  importo           NUMERIC(10,2),
-  periodo_da        VARCHAR(7),
-  periodo_a         VARCHAR(7),
-  stato             doc_stato         NOT NULL DEFAULT 'da_verificare',
-  metodo_estrazione estrazione_metodo,
-  confidenza        SMALLINT          CHECK (confidenza BETWEEN 0 AND 100),
-  note_ai           TEXT,
-  validato          BOOLEAN           NOT NULL DEFAULT FALSE,
-  data_caricamento  DATE              NOT NULL DEFAULT CURRENT_DATE,
-  created_at        TIMESTAMPTZ       NOT NULL DEFAULT NOW(),
-  updated_at        TIMESTAMPTZ       NOT NULL DEFAULT NOW()
+  id                        UUID              PRIMARY KEY DEFAULT gen_random_uuid(),
+  appartamento_id           UUID              REFERENCES appartamenti(id) ON DELETE SET NULL,
+  tipo_spesa_id             UUID              REFERENCES tipi_spesa(id)   ON DELETE SET NULL,
+  pagato_da_proprietario_id UUID              REFERENCES proprietari(id)  ON DELETE SET NULL,
+  nome_file                 TEXT              NOT NULL,
+  file_hash                 TEXT,
+  fornitore                 TEXT,
+  numero_doc                TEXT,
+  importo                   NUMERIC(10,2),
+  periodo_da                VARCHAR(7),
+  periodo_a                 VARCHAR(7),
+  stato                     doc_stato         NOT NULL DEFAULT 'da_verificare',
+  metodo_estrazione         estrazione_metodo,
+  confidenza                SMALLINT          CHECK (confidenza BETWEEN 0 AND 100),
+  note_ai                   TEXT,
+  validato                  BOOLEAN           NOT NULL DEFAULT FALSE,
+  data_caricamento          DATE              NOT NULL DEFAULT CURRENT_DATE,
+  created_at                TIMESTAMPTZ       NOT NULL DEFAULT NOW(),
+  updated_at                TIMESTAMPTZ       NOT NULL DEFAULT NOW()
 );
 
 -- ── AUDIT LOG DOCUMENTI ───────────────────────────────────────
@@ -143,26 +176,27 @@ CREATE TABLE IF NOT EXISTS documenti_audit (
 
 -- ── MOVIMENTI ─────────────────────────────────────────────────
 -- segno: +1 = entrata (versamento), -1 = uscita (rimborso)
--- tipo è solo 'Versamento'; il segno determina la direzione
+-- incassato_da_proprietario_id: proprietario che ha incassato il versamento
 CREATE TABLE IF NOT EXISTS movimenti (
-  id              UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
-  appartamento_id UUID          NOT NULL
-                                REFERENCES appartamenti(id) ON DELETE CASCADE,
-  componente_id   UUID          NOT NULL
-                                REFERENCES componenti(id)   ON DELETE CASCADE,
-  tipo            mov_tipo      NOT NULL DEFAULT 'Versamento',
-  segno           SMALLINT      NOT NULL DEFAULT 1
-                                CHECK (segno IN (1,-1)),
-  periodicita     periodicita   NOT NULL DEFAULT 'una_tantum',
-  importo          NUMERIC(10,2) NOT NULL CHECK (importo > 0),
-  validita_da      DATE,
-  validita_a       DATE,
-  descrizione      TEXT,
-  tipo_versamento  versamento_tipo NOT NULL DEFAULT 'affitto',
-  data_versamento  DATE,
-  mese_riferimento VARCHAR(7),
-  created_at       TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
-  updated_at       TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+  id                          UUID            PRIMARY KEY DEFAULT gen_random_uuid(),
+  appartamento_id             UUID            NOT NULL
+                                              REFERENCES appartamenti(id) ON DELETE CASCADE,
+  componente_id               UUID            NOT NULL
+                                              REFERENCES componenti(id)   ON DELETE CASCADE,
+  incassato_da_proprietario_id UUID           REFERENCES proprietari(id)  ON DELETE SET NULL,
+  tipo                        mov_tipo        NOT NULL DEFAULT 'Versamento',
+  segno                       SMALLINT        NOT NULL DEFAULT 1
+                                              CHECK (segno IN (1,-1)),
+  periodicita                 periodicita     NOT NULL DEFAULT 'una_tantum',
+  importo                     NUMERIC(10,2)   NOT NULL CHECK (importo > 0),
+  validita_da                 DATE,
+  validita_a                  DATE,
+  descrizione                 TEXT,
+  tipo_versamento             versamento_tipo NOT NULL DEFAULT 'affitto',
+  data_versamento             DATE,
+  mese_riferimento            VARCHAR(7),
+  created_at                  TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+  updated_at                  TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
 
 -- ── REPORT SALVATI ────────────────────────────────────────────
@@ -176,28 +210,37 @@ CREATE TABLE IF NOT EXISTS report_salvati (
 );
 
 -- ── REGOLE DI RIPARTO ─────────────────────────────────────────
--- validita_da / validita_a in formato YYYY-MM (VARCHAR(7))
+-- tipo_spesa_id nullable: NULL = regola default per tutte le spese
+-- target: 'inquilini' (riparto spese) | 'proprietari' (riparto entrate)
 -- modalita: 'escludi' → paga chi NON è in lista; 'includi' → paga solo chi è in lista
+-- tipo_versamento: se valorizzato la regola si applica solo a quel tipo di versamento
+-- split_uguale: se TRUE le entrate vengono divise in parti uguali tra i proprietari inclusi
 CREATE TABLE IF NOT EXISTS regole_riparto (
-  id              UUID           PRIMARY KEY DEFAULT gen_random_uuid(),
-  appartamento_id UUID           NOT NULL
-                                 REFERENCES appartamenti(id) ON DELETE CASCADE,
-  tipo_spesa_id   UUID           NOT NULL
-                                 REFERENCES tipi_spesa(id)   ON DELETE CASCADE,
-  descrizione     TEXT,
-  quota_totale_pct NUMERIC(5,2)  NOT NULL DEFAULT 100
-                                 CHECK (quota_totale_pct BETWEEN 0 AND 100),
-  modalita        regola_modalita NOT NULL DEFAULT 'escludi',
-  validita_da     VARCHAR(7),
-  validita_a      VARCHAR(7),
-  created_at      TIMESTAMPTZ    NOT NULL DEFAULT NOW(),
-  updated_at      TIMESTAMPTZ    NOT NULL DEFAULT NOW(),
+  id               UUID            PRIMARY KEY DEFAULT gen_random_uuid(),
+  appartamento_id  UUID            NOT NULL
+                                   REFERENCES appartamenti(id) ON DELETE CASCADE,
+  tipo_spesa_id    UUID            REFERENCES tipi_spesa(id)   ON DELETE CASCADE,
+  target           VARCHAR(20)     NOT NULL DEFAULT 'inquilini',
+  tipo_versamento  VARCHAR(20),
+  descrizione      TEXT,
+  quota_totale_pct NUMERIC(5,2)    NOT NULL DEFAULT 100
+                                   CHECK (quota_totale_pct BETWEEN 0 AND 100),
+  modalita         regola_modalita NOT NULL DEFAULT 'escludi',
+  split_uguale     BOOLEAN         NOT NULL DEFAULT FALSE,
+  validita_da      VARCHAR(7),
+  validita_a       VARCHAR(7),
+  created_at       TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
 
+  CONSTRAINT regole_target_chk
+    CHECK (target IN ('inquilini','proprietari')),
+  CONSTRAINT regole_riparto_versamento_chk
+    CHECK (tipo_versamento IS NULL OR tipo_versamento IN ('affitto','conguaglio','rimborso','altro')),
   CONSTRAINT regole_validita_chk
     CHECK (validita_a IS NULL OR validita_da IS NULL OR validita_a >= validita_da)
 );
 
--- ── REGOLE ESCLUSI ────────────────────────────────────────────
+-- ── REGOLE ESCLUSI / INCLUSI — INQUILINI ─────────────────────
 CREATE TABLE IF NOT EXISTS regole_riparto_esclusi (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   regola_id     UUID NOT NULL REFERENCES regole_riparto(id) ON DELETE CASCADE,
@@ -206,13 +249,62 @@ CREATE TABLE IF NOT EXISTS regole_riparto_esclusi (
   CONSTRAINT regole_esclusi_uq UNIQUE (regola_id, componente_id)
 );
 
--- ── REGOLE INCLUSI ────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS regole_riparto_inclusi (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   regola_id     UUID NOT NULL REFERENCES regole_riparto(id) ON DELETE CASCADE,
   componente_id UUID NOT NULL REFERENCES componenti(id)     ON DELETE CASCADE,
 
   CONSTRAINT regole_inclusi_uq UNIQUE (regola_id, componente_id)
+);
+
+-- ── REGOLE ESCLUSI / INCLUSI — PROPRIETARI ───────────────────
+CREATE TABLE IF NOT EXISTS regole_riparto_esclusi_prop (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  regola_id       UUID NOT NULL REFERENCES regole_riparto(id) ON DELETE CASCADE,
+  proprietario_id UUID NOT NULL REFERENCES proprietari(id)    ON DELETE CASCADE,
+
+  CONSTRAINT rep_esclusi_prop_uq UNIQUE (regola_id, proprietario_id)
+);
+
+-- percentuale: se NULL viene calcolata in parti uguali (vedi split_uguale sulla regola)
+CREATE TABLE IF NOT EXISTS regole_riparto_inclusi_prop (
+  id              UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+  regola_id       UUID         NOT NULL REFERENCES regole_riparto(id) ON DELETE CASCADE,
+  proprietario_id UUID         NOT NULL REFERENCES proprietari(id)    ON DELETE CASCADE,
+  percentuale     NUMERIC(5,2),
+
+  CONSTRAINT rep_inclusi_prop_uq UNIQUE (regola_id, proprietario_id)
+);
+
+-- ── ARCHIVIO DOCUMENTALE ─────────────────────────────────────
+-- Archivio generico di documenti non legati alla pipeline OCR/spese:
+-- contratti, verbali, planimetrie, documenti personali, ecc.
+CREATE TABLE IF NOT EXISTS archivio_tipi_documento (
+  id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  nome        TEXT        NOT NULL UNIQUE,
+  descrizione TEXT,
+  entita      TEXT[]      NOT NULL DEFAULT '{}',
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS archivio_documenti (
+  id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  tipo_documento_id UUID        REFERENCES archivio_tipi_documento(id) ON DELETE SET NULL,
+  nome_file         TEXT        NOT NULL,
+  file_hash         TEXT,
+  mime_type         TEXT,
+  estensione        TEXT,
+  note              TEXT,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS archivio_associazioni (
+  id           UUID  PRIMARY KEY DEFAULT gen_random_uuid(),
+  documento_id UUID  NOT NULL REFERENCES archivio_documenti(id) ON DELETE CASCADE,
+  entita_tipo  TEXT  NOT NULL CHECK (entita_tipo IN ('appartamento','inquilino','proprietario')),
+  entita_id    UUID  NOT NULL,
+
+  CONSTRAINT archivio_assoc_uq UNIQUE (documento_id, entita_tipo, entita_id)
 );
 
 -- ═══════════════════════════════════════════════════════════════
@@ -225,7 +317,6 @@ ALTER TABLE componenti
   ADD COLUMN IF NOT EXISTS validita_da DATE,
   ADD COLUMN IF NOT EXISTS validita_a  DATE;
 
--- Copia da data_inizio / data_fine se ancora presenti
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.columns
@@ -258,27 +349,21 @@ END $$;
 -- §4c: movimenti — aggiunta segno + semplificazione enum mov_tipo (migrazione 007)
 DO $$
 BEGIN
-  -- Aggiunge segno se mancante
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                  WHERE table_name='movimenti' AND column_name='segno') THEN
     ALTER TABLE movimenti ADD COLUMN segno SMALLINT NOT NULL DEFAULT 1;
-    -- Inizializza segno dai vecchi valori dell'enum
     UPDATE movimenti SET segno = -1 WHERE tipo::text = 'Rimborso';
     UPDATE movimenti SET segno =  1 WHERE tipo::text IN ('Versamento','Conguaglio','Rettifica');
   END IF;
 
-  -- Semplifica mov_tipo a solo 'Versamento' se ha ancora i vecchi valori
   IF EXISTS (
     SELECT 1 FROM pg_enum e
     JOIN   pg_type t ON t.oid = e.enumtypid
     WHERE  t.typname = 'mov_tipo'
     AND    e.enumlabel != 'Versamento'
   ) THEN
-    -- Forza tutti i record a 'Versamento' prima di cambiare il tipo
     UPDATE movimenti SET tipo = 'Versamento';
-    -- Converte la colonna a TEXT per poter rimuovere il tipo
     ALTER TABLE movimenti ALTER COLUMN tipo TYPE TEXT;
-    -- Ricrea l'enum e lo riapplica alla colonna
     DROP TYPE mov_tipo CASCADE;
     CREATE TYPE mov_tipo AS ENUM ('Versamento');
     ALTER TABLE movimenti
@@ -287,7 +372,6 @@ BEGIN
   END IF;
 END $$;
 
--- Aggiungi check su segno se mancante (dopo eventuale creazione colonna)
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -301,14 +385,11 @@ END $$;
 -- §4d: componenti — rinomina quota / quota_mensile → quota_affitto (migrazione 008)
 DO $$
 BEGIN
-  -- Rinomina 'quota' → 'quota_affitto'
   IF EXISTS (SELECT 1 FROM information_schema.columns
              WHERE table_name='componenti' AND column_name='quota')
   AND NOT EXISTS (SELECT 1 FROM information_schema.columns
                   WHERE table_name='componenti' AND column_name='quota_affitto') THEN
     ALTER TABLE componenti RENAME COLUMN quota TO quota_affitto;
-
-  -- Rinomina 'quota_mensile' → 'quota_affitto'
   ELSIF EXISTS (SELECT 1 FROM information_schema.columns
                 WHERE table_name='componenti' AND column_name='quota_mensile')
   AND NOT EXISTS (SELECT 1 FROM information_schema.columns
@@ -316,7 +397,6 @@ BEGIN
     ALTER TABLE componenti RENAME COLUMN quota_mensile TO quota_affitto;
   END IF;
 
-  -- Se ancora non esiste (DB freschissimo senza alcuna delle colonne vecchie), aggiungila
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                  WHERE table_name='componenti' AND column_name='quota_affitto') THEN
     ALTER TABLE componenti ADD COLUMN quota_affitto NUMERIC(10,2) DEFAULT 0;
@@ -326,10 +406,8 @@ END $$;
 -- §4e: regole_riparto — upgrade da v004 (DATE → VARCHAR) e v005 (+ quota_totale_pct) (migrazione 005/007)
 DO $$
 BEGIN
-  -- Rimuovi vecchia tabella regole_riparto_quote (modello A, sostituita da esclusi/inclusi)
   DROP TABLE IF EXISTS regole_riparto_quote CASCADE;
 
-  -- Converti validita_da / validita_a da DATE a VARCHAR(7) se necessario
   IF EXISTS (
     SELECT 1 FROM information_schema.columns
     WHERE  table_name='regole_riparto'
@@ -346,7 +424,6 @@ BEGIN
       CHECK (validita_a IS NULL OR validita_da IS NULL OR validita_a >= validita_da);
   END IF;
 
-  -- Aggiungi quota_totale_pct se mancante (migrazione 005)
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                  WHERE table_name='regole_riparto' AND column_name='quota_totale_pct') THEN
     ALTER TABLE regole_riparto
@@ -354,7 +431,6 @@ BEGIN
         CHECK (quota_totale_pct BETWEEN 0 AND 100);
   END IF;
 
-  -- Aggiungi modalita se mancante (migrazione 007)
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                  WHERE table_name='regole_riparto' AND column_name='modalita') THEN
     ALTER TABLE regole_riparto
@@ -362,15 +438,68 @@ BEGIN
   END IF;
 END $$;
 
--- §4f: movimenti — tipo_versamento, data_versamento, mese_riferimento (v5)
-DO $$ BEGIN
-  CREATE TYPE versamento_tipo AS ENUM ('affitto','conguaglio','rimborso','altro');
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
+-- §4f: movimenti — tipo_versamento, data_versamento, mese_riferimento (migrazione 006/v5)
 ALTER TABLE movimenti
   ADD COLUMN IF NOT EXISTS tipo_versamento  versamento_tipo NOT NULL DEFAULT 'affitto',
   ADD COLUMN IF NOT EXISTS data_versamento  DATE,
   ADD COLUMN IF NOT EXISTS mese_riferimento VARCHAR(7);
+
+-- §4g: componenti — caparra (migrazione 009)
+ALTER TABLE componenti
+  ADD COLUMN IF NOT EXISTS caparra NUMERIC(10,2) DEFAULT NULL;
+
+-- §4h: documenti — pagato_da_proprietario_id (migrazione 009)
+ALTER TABLE documenti
+  ADD COLUMN IF NOT EXISTS pagato_da_proprietario_id UUID
+    REFERENCES proprietari(id) ON DELETE SET NULL;
+
+-- §4i: movimenti — incassato_da_proprietario_id (migrazione 009)
+ALTER TABLE movimenti
+  ADD COLUMN IF NOT EXISTS incassato_da_proprietario_id UUID
+    REFERENCES proprietari(id) ON DELETE SET NULL;
+
+-- §4j: regole_riparto — target (migrazione 010)
+ALTER TABLE regole_riparto
+  ADD COLUMN IF NOT EXISTS target VARCHAR(20) NOT NULL DEFAULT 'inquilini';
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.check_constraints
+    WHERE  constraint_name = 'regole_target_chk'
+  ) THEN
+    ALTER TABLE regole_riparto ADD CONSTRAINT regole_target_chk
+      CHECK (target IN ('inquilini','proprietari'));
+  END IF;
+END $$;
+
+-- §4k: regole_riparto — tipo_spesa_id nullable, tipo_versamento (migrazione 011)
+ALTER TABLE regole_riparto ALTER COLUMN tipo_spesa_id DROP NOT NULL;
+
+ALTER TABLE regole_riparto
+  ADD COLUMN IF NOT EXISTS tipo_versamento VARCHAR(20);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.check_constraints
+    WHERE  constraint_name = 'regole_riparto_versamento_chk'
+  ) THEN
+    ALTER TABLE regole_riparto ADD CONSTRAINT regole_riparto_versamento_chk
+      CHECK (tipo_versamento IS NULL OR tipo_versamento IN ('affitto','conguaglio','rimborso','altro'));
+  END IF;
+END $$;
+
+-- §4l: regole_riparto — split_uguale (migrazione 012)
+ALTER TABLE regole_riparto
+  ADD COLUMN IF NOT EXISTS split_uguale BOOLEAN NOT NULL DEFAULT FALSE;
+
+UPDATE regole_riparto SET split_uguale = TRUE
+WHERE tipo_versamento IS NOT NULL AND split_uguale = FALSE;
+
+-- §4m: regole_riparto_inclusi_prop — percentuale (migrazione 012)
+ALTER TABLE regole_riparto_inclusi_prop
+  ADD COLUMN IF NOT EXISTS percentuale NUMERIC(5,2);
 
 -- ═══════════════════════════════════════════════════════════════
 -- 5. VINCOLI — idempotenti (DROP + ADD)
@@ -392,34 +521,48 @@ ALTER TABLE documenti  ADD  CONSTRAINT documenti_periodo_chk
 -- 6. INDICI (CREATE IF NOT EXISTS)
 -- ═══════════════════════════════════════════════════════════════
 
-CREATE INDEX IF NOT EXISTS idx_componenti_appartamento ON componenti(appartamento_id);
-CREATE INDEX IF NOT EXISTS idx_componenti_validita     ON componenti(validita_da, validita_a);
+CREATE INDEX IF NOT EXISTS idx_componenti_appartamento   ON componenti(appartamento_id);
+CREATE INDEX IF NOT EXISTS idx_componenti_validita       ON componenti(validita_da, validita_a);
 
-CREATE INDEX IF NOT EXISTS idx_documenti_appartamento  ON documenti(appartamento_id);
-CREATE INDEX IF NOT EXISTS idx_documenti_tipo_spesa    ON documenti(tipo_spesa_id);
-CREATE INDEX IF NOT EXISTS idx_documenti_periodo       ON documenti(periodo_da, periodo_a);
-CREATE INDEX IF NOT EXISTS idx_documenti_stato         ON documenti(stato);
-CREATE INDEX IF NOT EXISTS idx_documenti_hash          ON documenti(file_hash);
+CREATE INDEX IF NOT EXISTS idx_app_proprietari_app       ON appartamento_proprietari(appartamento_id);
+CREATE INDEX IF NOT EXISTS idx_app_proprietari_prop      ON appartamento_proprietari(proprietario_id);
 
-CREATE INDEX IF NOT EXISTS idx_audit_documento         ON documenti_audit(documento_id);
+CREATE INDEX IF NOT EXISTS idx_documenti_appartamento    ON documenti(appartamento_id);
+CREATE INDEX IF NOT EXISTS idx_documenti_tipo_spesa      ON documenti(tipo_spesa_id);
+CREATE INDEX IF NOT EXISTS idx_documenti_periodo         ON documenti(periodo_da, periodo_a);
+CREATE INDEX IF NOT EXISTS idx_documenti_stato           ON documenti(stato);
+CREATE INDEX IF NOT EXISTS idx_documenti_hash            ON documenti(file_hash);
+CREATE INDEX IF NOT EXISTS idx_documenti_pagato_da       ON documenti(pagato_da_proprietario_id);
 
-CREATE INDEX IF NOT EXISTS idx_movimenti_appartamento  ON movimenti(appartamento_id);
-CREATE INDEX IF NOT EXISTS idx_movimenti_componente    ON movimenti(componente_id);
-CREATE INDEX IF NOT EXISTS idx_movimenti_tipo          ON movimenti(tipo);
-CREATE INDEX IF NOT EXISTS idx_movimenti_validita      ON movimenti(validita_da, validita_a);
-CREATE INDEX IF NOT EXISTS idx_movimenti_tipo_vers     ON movimenti(tipo_versamento);
-CREATE INDEX IF NOT EXISTS idx_movimenti_mese_rif      ON movimenti(mese_riferimento);
-CREATE INDEX IF NOT EXISTS idx_movimenti_data_vers     ON movimenti(data_versamento);
+CREATE INDEX IF NOT EXISTS idx_audit_documento           ON documenti_audit(documento_id);
 
-CREATE INDEX IF NOT EXISTS idx_regole_appartamento     ON regole_riparto(appartamento_id);
-CREATE INDEX IF NOT EXISTS idx_regole_tipo_spesa       ON regole_riparto(tipo_spesa_id);
-CREATE INDEX IF NOT EXISTS idx_regole_validita         ON regole_riparto(validita_da, validita_a);
+CREATE INDEX IF NOT EXISTS idx_movimenti_appartamento    ON movimenti(appartamento_id);
+CREATE INDEX IF NOT EXISTS idx_movimenti_componente      ON movimenti(componente_id);
+CREATE INDEX IF NOT EXISTS idx_movimenti_tipo            ON movimenti(tipo);
+CREATE INDEX IF NOT EXISTS idx_movimenti_validita        ON movimenti(validita_da, validita_a);
+CREATE INDEX IF NOT EXISTS idx_movimenti_tipo_vers       ON movimenti(tipo_versamento);
+CREATE INDEX IF NOT EXISTS idx_movimenti_mese_rif        ON movimenti(mese_riferimento);
+CREATE INDEX IF NOT EXISTS idx_movimenti_data_vers       ON movimenti(data_versamento);
+CREATE INDEX IF NOT EXISTS idx_movimenti_incassato_da    ON movimenti(incassato_da_proprietario_id);
 
-CREATE INDEX IF NOT EXISTS idx_regole_esclusi_regola      ON regole_riparto_esclusi(regola_id);
-CREATE INDEX IF NOT EXISTS idx_regole_esclusi_componente  ON regole_riparto_esclusi(componente_id);
+CREATE INDEX IF NOT EXISTS idx_regole_appartamento       ON regole_riparto(appartamento_id);
+CREATE INDEX IF NOT EXISTS idx_regole_tipo_spesa         ON regole_riparto(tipo_spesa_id);
+CREATE INDEX IF NOT EXISTS idx_regole_validita           ON regole_riparto(validita_da, validita_a);
+CREATE INDEX IF NOT EXISTS idx_regole_target             ON regole_riparto(target);
 
-CREATE INDEX IF NOT EXISTS idx_regole_inclusi_regola      ON regole_riparto_inclusi(regola_id);
-CREATE INDEX IF NOT EXISTS idx_regole_inclusi_componente  ON regole_riparto_inclusi(componente_id);
+CREATE INDEX IF NOT EXISTS idx_regole_esclusi_regola     ON regole_riparto_esclusi(regola_id);
+CREATE INDEX IF NOT EXISTS idx_regole_esclusi_comp       ON regole_riparto_esclusi(componente_id);
+CREATE INDEX IF NOT EXISTS idx_regole_inclusi_regola     ON regole_riparto_inclusi(regola_id);
+CREATE INDEX IF NOT EXISTS idx_regole_inclusi_comp       ON regole_riparto_inclusi(componente_id);
+
+CREATE INDEX IF NOT EXISTS idx_rep_esclusi_prop_regola   ON regole_riparto_esclusi_prop(regola_id);
+CREATE INDEX IF NOT EXISTS idx_rep_esclusi_prop_prop     ON regole_riparto_esclusi_prop(proprietario_id);
+CREATE INDEX IF NOT EXISTS idx_rep_inclusi_prop_regola   ON regole_riparto_inclusi_prop(regola_id);
+CREATE INDEX IF NOT EXISTS idx_rep_inclusi_prop_prop     ON regole_riparto_inclusi_prop(proprietario_id);
+
+CREATE INDEX IF NOT EXISTS idx_archivio_doc_tipo         ON archivio_documenti(tipo_documento_id);
+CREATE INDEX IF NOT EXISTS idx_archivio_assoc_entita     ON archivio_associazioni(entita_tipo, entita_id);
+CREATE INDEX IF NOT EXISTS idx_archivio_assoc_doc        ON archivio_associazioni(documento_id);
 
 -- ═══════════════════════════════════════════════════════════════
 -- 7. FUNZIONI
@@ -478,7 +621,8 @@ $$;
 DO $$ DECLARE t TEXT;
 BEGIN
   FOREACH t IN ARRAY ARRAY[
-    'appartamenti','componenti','documenti','movimenti','regole_riparto'
+    'appartamenti','componenti','documenti','movimenti','regole_riparto',
+    'proprietari','appartamento_proprietari'
   ]
   LOOP
     EXECUTE format(
@@ -510,7 +654,7 @@ FROM componenti
 WHERE attivo = TRUE
 GROUP BY appartamento_id;
 
--- Saldo versamenti per componente (segno applicato: Rimborso = -1)
+-- Saldo versamenti per componente (segno applicato)
 CREATE VIEW v_saldo_componenti AS
 SELECT
   c.id                                        AS componente_id,
@@ -519,6 +663,7 @@ SELECT
   (c.nome || ' ' || COALESCE(c.cognome,''))  AS componente,
   c.percentuale,
   c.quota_affitto,
+  c.caparra,
   c.validita_da                               AS comp_validita_da,
   c.validita_a                                AS comp_validita_a,
   COALESCE(SUM(m.importo * m.segno), 0)       AS versato_totale
@@ -530,7 +675,7 @@ LEFT JOIN movimenti m
       AND (c.validita_a  IS NULL OR m.validita_da IS NULL OR m.validita_da <= COALESCE(c.validita_a, CURRENT_DATE))
 WHERE c.attivo = TRUE
 GROUP BY c.id, c.appartamento_id, a.nome, c.nome, c.cognome,
-         c.percentuale, c.quota_affitto, c.validita_da, c.validita_a;
+         c.percentuale, c.quota_affitto, c.caparra, c.validita_da, c.validita_a;
 
 -- Totale spese per appartamento (solo documenti elaborati)
 CREATE VIEW v_spese_appartamento AS
@@ -545,7 +690,7 @@ LEFT JOIN documenti d
 WHERE a.attivo = TRUE
 GROUP BY a.id, a.nome;
 
--- Dettaglio movimenti con info appartamento/componente e importo_netto
+-- Dettaglio movimenti con info appartamento/componente e importo netto
 CREATE VIEW v_movimenti_dettaglio AS
 SELECT
   m.id, m.appartamento_id, m.componente_id,
@@ -555,6 +700,7 @@ SELECT
   m.validita_da, m.validita_a,
   m.descrizione,
   m.tipo_versamento, m.data_versamento, m.mese_riferimento,
+  m.incassato_da_proprietario_id,
   m.created_at, m.updated_at,
   a.nome                                      AS appartamento_nome,
   (c.nome || ' ' || COALESCE(c.cognome,''))  AS componente_nome,
@@ -585,4 +731,4 @@ ON CONFLICT (descrizione) DO NOTHING;
 
 COMMIT;
 
-SELECT 'Schema GSA v4 applicato correttamente — ' || NOW()::TEXT AS esito;
+SELECT 'Schema GSA v5 applicato correttamente — ' || NOW()::TEXT AS esito;
