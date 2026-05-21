@@ -1,14 +1,14 @@
 import { useState } from "react";
 
 import Dashboard    from "./tabs/Dashboard.jsx";
-import Appartamenti from "./tabs/Appartamenti.jsx";
+import Appartamenti from "./tabs/appartamenti.jsx";
 import { Componenti }   from "./tabs/componenti.jsx";
 import { Tipologie }    from "./tabs/tipologie.jsx";
 import { Riparti }      from "./tabs/riparti.jsx";
 import { Griglia }      from "./tabs/griglia.jsx";
 import { Report }       from "./tabs/report.jsx";
-import { Documenti }    from "./tabs/Documenti.jsx";
-import { Versamenti }   from "./tabs/Versamenti.jsx";
+import { Documenti }    from "./tabs/documenti.jsx";
+import { Versamenti }   from "./tabs/versamenti.jsx";
 import { Proprietari }  from "./tabs/Proprietari.jsx";
 import { Documentale }  from "./tabs/Documentale.jsx";
 
