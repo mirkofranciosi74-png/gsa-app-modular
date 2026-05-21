@@ -1,0 +1,11 @@
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+.env
+frontend/.env
+storage/
+backups/*.gz
+backups/*.sql
+.DS_Store
+*.log
