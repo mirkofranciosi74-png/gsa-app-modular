@@ -468,8 +468,6 @@ export function Documenti() {
 // ─────────────────────────────────────────────────────────────────────────────
 function DocEditModal({ doc: initDoc, pdfUrl, apps, tipi, queueLeft = 0, onSave, onSkip, onClose }) {
   const [doc,          setDoc]     = useState(initDoc);
-  const [showPdf,      setShowPdf] = useState(!!pdfUrl);
-  const [pdfOk,        setPdfOk]   = useState(true);
   const [proprietari,  setProp]    = useState([]);
 
   useEffect(() => {
@@ -486,11 +484,6 @@ function DocEditModal({ doc: initDoc, pdfUrl, apps, tipi, queueLeft = 0, onSave,
       .catch(() => {});
   }, [doc.appartamento_id, doc.periodo_da]);
 
-  // Quando cambia il documento (navigazione coda) resetta lo stato pdf
-  useEffect(() => {
-    setShowPdf(!!pdfUrl);
-    setPdfOk(true);
-  }, [pdfUrl]);
 
   const sd       = v => setDoc(p => ({ ...p, ...v }));
   const appOpts  = apps.map(a => ({ value: a.id, label: a.nome }));
@@ -506,7 +499,7 @@ function DocEditModal({ doc: initDoc, pdfUrl, apps, tipi, queueLeft = 0, onSave,
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.78)", display: "flex",
                   alignItems: "center", justifyContent: "center", zIndex: 400, padding: 12 }}>
       <div style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: 12,
-                    width: "100%", maxWidth: showPdf && pdfUrl ? 1120 : 580, height: "92vh",
+                    width: "100%", maxWidth: 580, height: "92vh",
                     display: "flex", flexDirection: "column", transition: "max-width 0.2s" }}>
 
         {/* Header */}
@@ -526,10 +519,9 @@ function DocEditModal({ doc: initDoc, pdfUrl, apps, tipi, queueLeft = 0, onSave,
             <p style={{ fontSize: 11, color: "var(--text2)", margin: 0 }}>{doc.nome_file}</p>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            {pdfUrl && pdfOk && (
-              <Btn variant={showPdf ? "primary" : "secondary"} size="sm" onClick={() => setShowPdf(s => !s)}>
-                <i className={`ti ${showPdf ? "ti-eye-off" : "ti-eye"}`} />
-                {showPdf ? "Nascondi" : "Mostra PDF"}
+            {pdfUrl && (
+              <Btn variant="secondary" size="sm" onClick={() => window.open(pdfUrl, "_blank")}>
+                <i className="ti ti-file-type-pdf" /> Apri PDF
               </Btn>
             )}
             {!pdfUrl && (
@@ -628,28 +620,6 @@ function DocEditModal({ doc: initDoc, pdfUrl, apps, tipi, queueLeft = 0, onSave,
             </div>
           </div>
 
-          {/* Anteprima PDF */}
-          {showPdf && pdfUrl && pdfOk && (
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, background: "#111" }}>
-              <div style={{ padding: "6px 14px", fontSize: 11, color: "var(--text2)",
-                             borderBottom: "1px solid var(--border)", display: "flex",
-                             alignItems: "center", gap: 6 }}>
-                <i className="ti ti-file-type-pdf" style={{ color: "#ef4444" }} /> PDF originale
-              </div>
-              <object
-                data={pdfUrl}
-                type="application/pdf"
-                style={{ flex: 1, border: "none", width: "100%", height: "100%" }}
-              >
-                <p style={{ color: "#fff", padding: 20 }}>
-                  Il browser non supporta la preview PDF.{" "}
-                  <a href={pdfUrl} target="_blank" rel="noreferrer" style={{ color: "#60a5fa" }}>
-                    Apri in una nuova scheda
-                  </a>
-                </p>
-              </object>
-            </div>
-          )}
         </div>
 
         {/* Footer */}
