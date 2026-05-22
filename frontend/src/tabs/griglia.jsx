@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { appartamentiApi, movimentiApi, grigliaApi } from "../api.js";
+import { appartamentiApi, movimentiApi, grigliaApi, documentiApi } from "../api.js";
 import { Btn, Field, SectionHeader } from "../components/ui.jsx";
 import { euro, mesL, toISO } from "../utils/formatters.js";
 
@@ -67,6 +67,16 @@ export function Griglia() {
   }
 
   const ym2L = ym => ym ? mesL(ym + "-01") : "";
+
+  async function apriPdf(documentoId) {
+    try {
+      const res = await fetch(documentiApi.pdfUrl(documentoId));
+      if (!res.ok) return;
+      const url = URL.createObjectURL(await res.blob());
+      window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    } catch {}
+  }
 
   const thS = {
     padding: "9px 10px", fontWeight: 600, fontSize: 11,
@@ -249,9 +259,25 @@ export function Griglia() {
                         {/* riga quota teorica */}
                         <tr style={{ borderBottom: pagante ? "none" : "1px solid var(--bg3)" }}>
                           <td style={{ padding: "7px 10px" }}>
-                            <p style={{ fontWeight: 600, margin: 0, fontSize: 13 }}>{r.tipo_descrizione}</p>
-                            {r.fornitore && <p style={{ fontSize: 10, color: "var(--text2)", margin: "2px 0 0" }}>{r.fornitore}</p>}
-                            <p style={{ fontSize: 10, color: "var(--text2)", margin: "2px 0 0", fontStyle: "italic" }}>Quota teorica</p>
+                            <div style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
+                              <div style={{ flex: 1 }}>
+                                <p style={{ fontWeight: 600, margin: 0, fontSize: 13 }}>{r.tipo_descrizione}</p>
+                                {r.fornitore && <p style={{ fontSize: 10, color: "var(--text2)", margin: "2px 0 0" }}>{r.fornitore}</p>}
+                                <p style={{ fontSize: 10, color: "var(--text2)", margin: "2px 0 0", fontStyle: "italic" }}>Quota teorica</p>
+                              </div>
+                              {r.pdf_disponibile && (
+                                <button
+                                  onClick={() => apriPdf(r.documento_id)}
+                                  title="Visualizza PDF"
+                                  style={{
+                                    background: "none", border: "1px solid var(--border)",
+                                    borderRadius: 6, cursor: "pointer", padding: "3px 6px",
+                                    color: "#ef4444", flexShrink: 0,
+                                  }}>
+                                  <i className="ti ti-file-type-pdf" style={{ fontSize: 14 }} />
+                                </button>
+                              )}
+                            </div>
                           </td>
                           <td style={{ ...tdN("#a5b4fc", true, "rgba(99,102,241,0.07)") }}>{euro(r.importo)}</td>
                           {propList.map(p => {
@@ -566,20 +592,36 @@ export function Griglia() {
                   ) : righeDocumenti.map((r, i) => (
                     <tr key={"d" + i} style={{ borderBottom: "1px solid var(--bg3)" }}>
                       <td style={{ padding: "7px 10px" }}>
-                        <p style={{ fontWeight: 600, margin: 0, fontSize: 13 }}>
-                          {r.tipo_descrizione || r.nome_file}
-                        </p>
-                        {r.fornitore && (
-                          <p style={{ fontSize: 10, color: "var(--text2)", margin: "2px 0 0" }}>
-                            <i className="ti ti-building-store" style={{ marginRight: 3 }} />
-                            {r.fornitore}
-                          </p>
-                        )}
-                        {r.mesi_filtro < r.mesi_fattura && (
-                          <p style={{ fontSize: 10, color: "var(--accent)", margin: "2px 0 0" }}>
-                            {r.mesi_filtro}/{r.mesi_fattura} mesi · fattura totale {euro(r.importo_fattura)}
-                          </p>
-                        )}
+                        <div style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
+                          <div style={{ flex: 1 }}>
+                            <p style={{ fontWeight: 600, margin: 0, fontSize: 13 }}>
+                              {r.tipo_descrizione || r.nome_file}
+                            </p>
+                            {r.fornitore && (
+                              <p style={{ fontSize: 10, color: "var(--text2)", margin: "2px 0 0" }}>
+                                <i className="ti ti-building-store" style={{ marginRight: 3 }} />
+                                {r.fornitore}
+                              </p>
+                            )}
+                            {r.mesi_filtro < r.mesi_fattura && (
+                              <p style={{ fontSize: 10, color: "var(--accent)", margin: "2px 0 0" }}>
+                                {r.mesi_filtro}/{r.mesi_fattura} mesi · fattura totale {euro(r.importo_fattura)}
+                              </p>
+                            )}
+                          </div>
+                          {r.pdf_disponibile && (
+                            <button
+                              onClick={() => apriPdf(r.documento_id)}
+                              title="Visualizza PDF"
+                              style={{
+                                background: "none", border: "1px solid var(--border)",
+                                borderRadius: 6, cursor: "pointer", padding: "3px 6px",
+                                color: "#ef4444", flexShrink: 0,
+                              }}>
+                              <i className="ti ti-file-type-pdf" style={{ fontSize: 14 }} />
+                            </button>
+                          )}
+                        </div>
                       </td>
                       <td style={{ padding: "7px 10px", textAlign: "center", fontSize: 11, color: "var(--text2)" }}>
                         {ym2L(r.periodo_da)}
