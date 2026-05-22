@@ -1,5 +1,6 @@
 import { query } from "../../shared/db/pool.js";
 import { regolaAttiva, regolaAttivaProp, regolaAttivaVers, regolaAttivaVersProp, calcolaQuote, calcolaQuoteProp } from "./ripartiRepo.js";
+import { pdfEsiste } from "../../shared/storage.js";
 
 function toYM(v)  { if (!v) return null; return String(v).slice(0, 7); }
 const oggiYM = () => new Date().toISOString().slice(0, 7);
@@ -176,6 +177,8 @@ export async function righeGriglia(appId, periodoDA, periodoA, componenteId = nu
       mesi_fattura:     mesiTotaliDoc.length,
       mesi_filtro:      mesiNelFiltro.length,
       quote:            quotePerComp,
+      documento_id:     doc.id,
+      pdf_disponibile:  pdfEsiste(doc.id),
     });
   }
 
@@ -580,6 +583,8 @@ export async function grigliaPropretari(appId, periodoDA, periodoA) {
       importo:                   VAL * mesiNelFiltro.length,
       pagato_da_proprietario_id: pagato_da,
       quote:                     quotePerProp,
+      documento_id:              d.id,
+      pdf_disponibile:           pdfEsiste(d.id),
     });
   }
 
