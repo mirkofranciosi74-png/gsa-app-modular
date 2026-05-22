@@ -1,19 +1,21 @@
 import { Router }                          from "express";
 import { spawn }                           from "child_process";
 import { readdirSync, readFileSync,
-         writeFileSync, existsSync }       from "fs";
+         writeFileSync, existsSync,
+         createReadStream }               from "fs";
 import { join }                            from "path";
 import multer                              from "multer";
 import JSZip                              from "jszip";
 import { h }                              from "../../shared/middleware.js";
 import { PDF_STORAGE_PATH,
          ARCHIVIO_STORAGE_PATH }          from "../../shared/storage.js";
+import * as logger                        from "../../shared/logger.js";
 
 export const adminRouter = Router();
 
 const up = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 500 * 1024 * 1024 }, // 500 MB
+  limits: { fileSize: 500 * 1024 * 1024 },
 });
 
 // ── Helpers pg_dump / psql ────────────────────────────────────────────────────
@@ -61,26 +63,31 @@ function psqlRestore(sqlBuffer) {
   });
 }
 
-// ── GET /api/admin/backup ─────────────────────────────────────────────────────
+// ── GET /api/admin/backup?tipo=tutto|db|documentale ──────────────────────────
 
-adminRouter.get("/backup", h(async (_req, res) => {
-  console.log("[admin] avvio backup...");
+adminRouter.get("/backup", h(async (req, res) => {
+  const tipo = req.query.tipo || "tutto"; // "tutto" | "db" | "documentale"
+  logger.log("admin", `Backup avviato tipo=${tipo}`);
 
-  const dump = await pgDump();
   const zip  = new JSZip();
-  zip.file("dump.sql", dump);
+  let nameBase = `gsa_backup_${tipo}`;
 
-  if (existsSync(PDF_STORAGE_PATH)) {
-    const folder = zip.folder("pdf");
-    for (const f of readdirSync(PDF_STORAGE_PATH)) {
-      folder.file(f, readFileSync(join(PDF_STORAGE_PATH, f)));
-    }
+  if (tipo === "db" || tipo === "tutto") {
+    const dump = await pgDump();
+    zip.file("dump.sql", dump);
+    logger.log("admin", `dump.sql aggiunto (${dump.length} bytes)`);
   }
 
-  if (existsSync(ARCHIVIO_STORAGE_PATH)) {
-    const folder = zip.folder("archivio");
-    for (const f of readdirSync(ARCHIVIO_STORAGE_PATH)) {
-      folder.file(f, readFileSync(join(ARCHIVIO_STORAGE_PATH, f)));
+  if (tipo === "documentale" || tipo === "tutto") {
+    if (existsSync(PDF_STORAGE_PATH)) {
+      const folder = zip.folder("pdf");
+      for (const f of readdirSync(PDF_STORAGE_PATH))
+        folder.file(f, readFileSync(join(PDF_STORAGE_PATH, f)));
+    }
+    if (existsSync(ARCHIVIO_STORAGE_PATH)) {
+      const folder = zip.folder("archivio");
+      for (const f of readdirSync(ARCHIVIO_STORAGE_PATH))
+        folder.file(f, readFileSync(join(ARCHIVIO_STORAGE_PATH, f)));
     }
   }
 
@@ -91,43 +98,85 @@ adminRouter.get("/backup", h(async (_req, res) => {
   });
 
   const date = new Date().toISOString().slice(0, 10);
+  const filename = `${nameBase}_${date}.zip`;
+  logger.log("admin", `Backup completato: ${filename} (${(buf.length / 1024 / 1024).toFixed(2)} MB)`);
   res.setHeader("Content-Type", "application/zip");
-  res.setHeader("Content-Disposition", `attachment; filename="gsa_backup_${date}.zip"`);
-  console.log(`[admin] backup completato: ${(buf.length / 1024 / 1024).toFixed(2)} MB`);
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
   res.send(buf);
 }));
 
-// ── POST /api/admin/restore ───────────────────────────────────────────────────
+// ── POST /api/admin/restore?tipo=tutto|db|documentale ────────────────────────
 
 adminRouter.post("/restore", up.single("file"), h(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "Nessun file caricato" });
+  const tipo = req.query.tipo || "tutto";
+  logger.log("admin", `Ripristino avviato tipo=${tipo} file=${req.file.originalname}`);
 
-  console.log(`[admin] avvio ripristino da ${req.file.originalname}...`);
   const zip = await JSZip.loadAsync(req.file.buffer);
 
-  const dumpEntry = zip.file("dump.sql");
-  if (!dumpEntry) return res.status(400).json({ error: "dump.sql non trovato — file non è un backup GSA valido" });
+  let pdfCount = 0, archivioCount = 0;
 
-  const dumpSql = await dumpEntry.async("nodebuffer");
-  await psqlRestore(dumpSql);
-  console.log("[admin] database ripristinato");
-
-  let pdfCount = 0;
-  for (const [path, entry] of Object.entries(zip.files)) {
-    if (path.startsWith("pdf/") && !entry.dir) {
-      writeFileSync(join(PDF_STORAGE_PATH, path.slice(4)), await entry.async("nodebuffer"));
-      pdfCount++;
-    }
+  if (tipo === "db" || tipo === "tutto") {
+    const dumpEntry = zip.file("dump.sql");
+    if (!dumpEntry) return res.status(400).json({ error: "dump.sql non trovato — file non è un backup GSA valido" });
+    const dumpSql = await dumpEntry.async("nodebuffer");
+    await psqlRestore(dumpSql);
+    logger.log("admin", "Database ripristinato");
   }
 
-  let archivioCount = 0;
-  for (const [path, entry] of Object.entries(zip.files)) {
-    if (path.startsWith("archivio/") && !entry.dir) {
-      writeFileSync(join(ARCHIVIO_STORAGE_PATH, path.slice(9)), await entry.async("nodebuffer"));
-      archivioCount++;
+  if (tipo === "documentale" || tipo === "tutto") {
+    for (const [path, entry] of Object.entries(zip.files)) {
+      if (path.startsWith("pdf/") && !entry.dir) {
+        writeFileSync(join(PDF_STORAGE_PATH, path.slice(4)), await entry.async("nodebuffer"));
+        pdfCount++;
+      }
     }
+    for (const [path, entry] of Object.entries(zip.files)) {
+      if (path.startsWith("archivio/") && !entry.dir) {
+        writeFileSync(join(ARCHIVIO_STORAGE_PATH, path.slice(9)), await entry.async("nodebuffer"));
+        archivioCount++;
+      }
+    }
+    logger.log("admin", `File ripristinati: ${pdfCount} PDF, ${archivioCount} archivio`);
   }
 
-  console.log(`[admin] ripristino completato: ${pdfCount} PDF, ${archivioCount} file archivio`);
   res.json({ ok: true, pdfRipristinati: pdfCount, archivioRipristinati: archivioCount });
+}));
+
+// ── GET /api/admin/logs/status ────────────────────────────────────────────────
+
+adminRouter.get("/logs/status", h(async (_, res) => {
+  res.json({
+    enabled: logger.isEnabled(),
+    exists:  logger.logExists(),
+    size:    logger.logSize(),
+    path:    logger.LOG_FILE,
+  });
+}));
+
+// ── POST /api/admin/logs/toggle ───────────────────────────────────────────────
+
+adminRouter.post("/logs/toggle", h(async (req, res) => {
+  const { enabled } = req.body;
+  const stato = logger.setEnabled(enabled);
+  console.log(`[admin] logging ${stato ? "attivato" : "disattivato"}`);
+  res.json({ enabled: stato });
+}));
+
+// ── GET /api/admin/logs/download ──────────────────────────────────────────────
+
+adminRouter.get("/logs/download", h(async (_, res) => {
+  if (!logger.logExists()) return res.status(404).json({ error: "Nessun log disponibile" });
+  const date = new Date().toISOString().slice(0, 10);
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="gsa_${date}.log"`);
+  createReadStream(logger.LOG_FILE).pipe(res);
+}));
+
+// ── DELETE /api/admin/logs ────────────────────────────────────────────────────
+
+adminRouter.delete("/logs", h(async (_, res) => {
+  logger.clearLog();
+  console.log("[admin] log cancellato");
+  res.status(204).end();
 }));

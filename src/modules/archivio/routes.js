@@ -57,8 +57,8 @@ archivioRouter.post("/upload", up.single("file"), h(async (req, res) => {
   res.status(201).json(await repo.getDocumento(doc.id));
 }));
 archivioRouter.put("/:id", h(async (q, r) => {
-  const { tipo_documento_id, note, associazioni } = q.body;
-  const d = await repo.updateDocumento(q.params.id, { tipo_documento_id, note });
+  const { tipo_documento_id, note, associazioni, nome_file } = q.body;
+  const d = await repo.updateDocumento(q.params.id, { tipo_documento_id, note, nome_file });
   if (!d) return r.status(404).json({ error: "Non trovato" });
   if (associazioni !== undefined) await repo.setAssociazioni(q.params.id, associazioni);
   r.json(await repo.getDocumento(q.params.id));

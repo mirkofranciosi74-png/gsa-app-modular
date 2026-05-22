@@ -10,6 +10,7 @@ if (missing.length) {
 import express from "express";
 import cors    from "cors";
 import { errorHandler } from "./shared/middleware.js";
+import { log } from "./shared/logger.js";
 
 import { appartamentiRouter, proprietariRouter,
          associazioniRouter, tipiSpesaRouter }  from "./modules/anagrafica/routes.js";
@@ -28,6 +29,7 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use((req, _res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  log("http", `${req.method} ${req.path}`);
   next();
 });
 
