@@ -72,13 +72,13 @@ export async function listDocumenti({ tipoId, entitaTipo, entitaId } = {}) {
               a.nome,
               c.nome || ' ' || COALESCE(c.cognome,''),
               pr.nome || ' ' || COALESCE(pr.cognome,''),
-              d.nome_file
+              sp.nome_file
             ) AS entita_nome
      FROM archivio_associazioni aa
      LEFT JOIN appartamenti a  ON aa.entita_tipo='appartamento' AND a.id=aa.entita_id
      LEFT JOIN componenti   c  ON aa.entita_tipo='inquilino'    AND c.id=aa.entita_id
      LEFT JOIN proprietari  pr ON aa.entita_tipo='proprietario' AND pr.id=aa.entita_id
-     LEFT JOIN documenti    d  ON aa.entita_tipo='spesa'        AND d.id::text=aa.entita_id
+     LEFT JOIN documenti    sp ON aa.entita_tipo='spesa'        AND sp.id=aa.entita_id
      WHERE aa.documento_id = ANY($1)`,
     [ids]
   );
@@ -107,13 +107,13 @@ export async function getDocumento(id) {
               a.nome,
               c.nome || ' ' || COALESCE(c.cognome,''),
               pr.nome || ' ' || COALESCE(pr.cognome,''),
-              d.nome_file
+              sp.nome_file
             ) AS entita_nome
      FROM archivio_associazioni aa
      LEFT JOIN appartamenti a  ON aa.entita_tipo='appartamento' AND a.id=aa.entita_id
      LEFT JOIN componenti   c  ON aa.entita_tipo='inquilino'    AND c.id=aa.entita_id
      LEFT JOIN proprietari  pr ON aa.entita_tipo='proprietario' AND pr.id=aa.entita_id
-     LEFT JOIN documenti    d  ON aa.entita_tipo='spesa'        AND d.id::text=aa.entita_id
+     LEFT JOIN documenti    sp ON aa.entita_tipo='spesa'        AND sp.id=aa.entita_id
      WHERE aa.documento_id=$1`,
     [id]
   );
