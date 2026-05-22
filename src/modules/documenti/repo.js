@@ -21,7 +21,7 @@ export async function listAll({ appartamentoId, periodoDA, periodoA, tipo, stato
             (SELECT aa.documento_id
              FROM   archivio_associazioni aa
              WHERE  aa.entita_tipo = 'spesa'
-               AND  aa.entita_id   = d.id::text
+               AND  aa.entita_id   = d.id
              LIMIT  1) AS archivio_doc_id
      FROM   documenti d
      LEFT JOIN appartamenti a  ON a.id  = d.appartamento_id
