@@ -68,11 +68,17 @@ export async function listDocumenti({ tipoId, entitaTipo, entitaId } = {}) {
   const ids = rows.map(r => r.id);
   const assocs = await query(
     `SELECT aa.*,
-            COALESCE(a.nome, c.nome || ' ' || COALESCE(c.cognome,''), pr.nome || ' ' || COALESCE(pr.cognome,'')) AS entita_nome
+            COALESCE(
+              a.nome,
+              c.nome || ' ' || COALESCE(c.cognome,''),
+              pr.nome || ' ' || COALESCE(pr.cognome,''),
+              d.nome_file
+            ) AS entita_nome
      FROM archivio_associazioni aa
      LEFT JOIN appartamenti a  ON aa.entita_tipo='appartamento' AND a.id=aa.entita_id
      LEFT JOIN componenti   c  ON aa.entita_tipo='inquilino'    AND c.id=aa.entita_id
      LEFT JOIN proprietari  pr ON aa.entita_tipo='proprietario' AND pr.id=aa.entita_id
+     LEFT JOIN documenti    d  ON aa.entita_tipo='spesa'        AND d.id::text=aa.entita_id
      WHERE aa.documento_id = ANY($1)`,
     [ids]
   );
@@ -97,11 +103,17 @@ export async function getDocumento(id) {
   if (!rows[0]) return null;
   const assocs = await query(
     `SELECT aa.*,
-            COALESCE(a.nome, c.nome || ' ' || COALESCE(c.cognome,''), pr.nome || ' ' || COALESCE(pr.cognome,'')) AS entita_nome
+            COALESCE(
+              a.nome,
+              c.nome || ' ' || COALESCE(c.cognome,''),
+              pr.nome || ' ' || COALESCE(pr.cognome,''),
+              d.nome_file
+            ) AS entita_nome
      FROM archivio_associazioni aa
      LEFT JOIN appartamenti a  ON aa.entita_tipo='appartamento' AND a.id=aa.entita_id
      LEFT JOIN componenti   c  ON aa.entita_tipo='inquilino'    AND c.id=aa.entita_id
      LEFT JOIN proprietari  pr ON aa.entita_tipo='proprietario' AND pr.id=aa.entita_id
+     LEFT JOIN documenti    d  ON aa.entita_tipo='spesa'        AND d.id::text=aa.entita_id
      WHERE aa.documento_id=$1`,
     [id]
   );
@@ -119,12 +131,14 @@ export async function createDocumento({ tipo_documento_id, nome_file, file_hash,
   return rows[0];
 }
 
-export async function updateDocumento(id, { tipo_documento_id, note }) {
+export async function updateDocumento(id, { tipo_documento_id, note, nome_file }) {
   const rows = await query(
     `UPDATE archivio_documenti
-     SET tipo_documento_id=$1, note=$2
-     WHERE id=$3 RETURNING *`,
-    [tipo_documento_id || null, note || null, id]
+     SET tipo_documento_id = $1,
+         note              = $2,
+         nome_file         = CASE WHEN $3::text IS NOT NULL THEN $3 ELSE nome_file END
+     WHERE id=$4 RETURNING *`,
+    [tipo_documento_id || null, note || null, nome_file || null, id]
   );
   return rows[0] || null;
 }

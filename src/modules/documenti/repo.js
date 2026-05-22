@@ -17,7 +17,12 @@ export async function listAll({ appartamentoId, periodoDA, periodoA, tipo, stato
   return query(
     `SELECT d.*,
             a.nome  AS appartamento_nome,
-            ts.descrizione AS tipo_descrizione
+            ts.descrizione AS tipo_descrizione,
+            (SELECT aa.documento_id
+             FROM   archivio_associazioni aa
+             WHERE  aa.entita_tipo = 'spesa'
+               AND  aa.entita_id   = d.id::text
+             LIMIT  1) AS archivio_doc_id
      FROM   documenti d
      LEFT JOIN appartamenti a  ON a.id  = d.appartamento_id
      LEFT JOIN tipi_spesa   ts ON ts.id = d.tipo_spesa_id

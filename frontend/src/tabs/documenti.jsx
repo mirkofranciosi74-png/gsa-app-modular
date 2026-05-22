@@ -1,16 +1,56 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { appartamentiApi, documentiApi, tipiSpesaApi, proprietariApi, associazioniApi } from "../api.js";
-import { Btn, StatoBadge, Confirm, Field, SectionHeader } from "../components/ui.jsx";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { appartamentiApi, documentiApi, tipiSpesaApi, proprietariApi, associazioniApi, archivioApi } from "../api.js";
+import { Btn, StatoBadge, Confirm, Field, SectionHeader, Modal } from "../components/ui.jsx";
 import { euro, mesL, uid } from "../utils/formatters.js";
+
+// ── Componente header colonna ordinabile ──────────────────────────────────────
+function SortTh({ col, label, sort, setSort, style }) {
+  const active = sort.col === col;
+  return (
+    <th style={{ cursor: "pointer", userSelect: "none", ...style }}
+        onClick={() => setSort(s => ({ col, dir: s.col === col && s.dir === "asc" ? "desc" : "asc" }))}>
+      {label}
+      {active
+        ? <i className={`ti ti-arrow-${sort.dir === "asc" ? "up" : "down"}`}
+             style={{ marginLeft: 4, fontSize: 10, verticalAlign: "middle" }} />
+        : <i className="ti ti-arrows-sort"
+             style={{ marginLeft: 4, fontSize: 10, verticalAlign: "middle", opacity: 0.3 }} />}
+    </th>
+  );
+}
+
+// ── Modal rinomina ─────────────────────────────────────────────────────────────
+function RenameModal({ nomeCorrente, onSave, onClose }) {
+  const [nome, setNome] = useState(nomeCorrente);
+  return (
+    <Modal title="Rinomina documento" onClose={onClose} width={420}
+           footer={<>
+             <Btn variant="ghost" onClick={onClose}>Annulla</Btn>
+             <Btn variant="primary" onClick={() => nome.trim() && onSave(nome.trim())}
+                  disabled={!nome.trim()}>
+               <i className="ti ti-check" /> Rinomina
+             </Btn>
+           </>}>
+      <Field label="Nuovo nome">
+        <input autoFocus value={nome} onChange={e => setNome(e.target.value)}
+               onKeyDown={e => e.key === "Enter" && nome.trim() && onSave(nome.trim())}
+               placeholder="Nome documento" />
+      </Field>
+    </Modal>
+  );
+}
 
 export function Documenti() {
   const [docs,     setDocs]  = useState([]);
   const [apps,     setApps]  = useState([]);
   const [tipi,     setTipi]  = useState([]);
   const [filtro,   setFilt]  = useState({ stato: "", appartamentoId: "", tipo: "", periodoDA: "", periodoA: "" });
+  const [ricerca,  setRicerca] = useState("");
+  const [sort,     setSort]  = useState({ col: "periodo_da", dir: "desc" });
   const [sel,      setSel]   = useState(new Set());
   const [conf,     setConf]  = useState(null);
   const [editItem, setEdit]  = useState(null);
+  const [rename,   setRename] = useState(null); // { id, nomeCorrente }
   const [queue,    setQueue] = useState([]);
   const [buchi,    setBuchi] = useState([]);
   const [buchiOpen,setBuchiOpen] = useState(true);
@@ -40,6 +80,29 @@ export function Documenti() {
       periodoA:  filtro.periodoA  || undefined,
     }).then(setBuchi).catch(() => {});
   }, [filtro.periodoDA, filtro.periodoA]);
+
+  // ── Filtro + ordinamento client-side ───────────────────────────────────────
+  const docsFiltrati = useMemo(() => {
+    let list = [...docs];
+    if (ricerca.trim()) {
+      const q = ricerca.toLowerCase();
+      list = list.filter(d =>
+        (d.nome_file         || "").toLowerCase().includes(q) ||
+        (d.appartamento_nome || "").toLowerCase().includes(q) ||
+        (d.tipo_descrizione  || "").toLowerCase().includes(q) ||
+        (d.fornitore         || "").toLowerCase().includes(q) ||
+        (d.numero_doc        || "").toLowerCase().includes(q)
+      );
+    }
+    const { col, dir } = sort;
+    list.sort((a, b) => {
+      let va = a[col] ?? "", vb = b[col] ?? "";
+      if (col === "importo") { va = parseFloat(va) || 0; vb = parseFloat(vb) || 0; }
+      const cmp = va < vb ? -1 : va > vb ? 1 : 0;
+      return dir === "asc" ? cmp : -cmp;
+    });
+    return list;
+  }, [docs, ricerca, sort]);
 
   // ── Apertura prossimo documento dalla coda ─────────────────────────────────
   const apriProssimo = useCallback(coda => {
@@ -96,7 +159,6 @@ export function Documenti() {
       const stato   = doc.stato === "duplicato" ? "duplicato" : campiOk ? "elaborato" : "da_verificare";
 
       if (doc.id) {
-        // Documento esistente (estratto da PDF o già in DB) → aggiorna
         await documentiApi.update(doc.id, { ...doc, nome_file: doc.nome_file.trim(), stato, validato: true });
         setQueue(prev => {
           const nuova = prev.filter(q => !(q.doc && q.doc.id === doc.id));
@@ -104,7 +166,6 @@ export function Documenti() {
           return nuova;
         });
       } else {
-        // Documento nuovo inserito manualmente → crea
         await documentiApi.create({ ...doc, stato, validato: true });
       }
 
@@ -125,9 +186,19 @@ export function Documenti() {
     });
   }
 
+  // ── Rinomina ───────────────────────────────────────────────────────────────
+  async function doRename(id, nomeFile) {
+    const d = docs.find(x => x.id === id);
+    if (!d) return;
+    try {
+      await documentiApi.update(id, { ...d, nome_file: nomeFile });
+      setRename(null); load();
+    } catch (e) { alert("Errore: " + e.message); }
+  }
+
   // ── Selezione multipla ─────────────────────────────────────────────────────
   const toggleSel = id => setSel(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const toggleAll = () => setSel(sel.size === docs.length ? new Set() : new Set(docs.map(d => d.id)));
+  const toggleAll = () => setSel(sel.size === docsFiltrati.length ? new Set() : new Set(docsFiltrati.map(d => d.id)));
 
   async function bulkStato(stato) {
     if (!sel.size) return;
@@ -144,9 +215,9 @@ export function Documenti() {
     } catch (e) { alert("Errore: " + e.message); }
   }
 
-  const pronti  = queue.filter(q => q.stato === "pronto").length;
+  const pronti   = queue.filter(q => q.stato === "pronto").length;
   const inAttesa = queue.filter(q => q.stato === "attesa" || q.stato === "caricamento").length;
-  const nCrit   = docs.filter(d => d.stato === "da_verificare" || d.stato === "errore").length;
+  const nCrit    = docs.filter(d => d.stato === "da_verificare" || d.stato === "errore").length;
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -257,7 +328,6 @@ export function Documenti() {
           </div>
           {buchiOpen && (
             <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
-              {/* Raggruppa per appartamento */}
               {Object.entries(
                 buchi.reduce((acc, b) => {
                   const k = b.appartamento_nome;
@@ -275,8 +345,7 @@ export function Documenti() {
                     <div key={`${b.appartamento_id}_${b.tipo_spesa_id}`}
                          style={{ display: "flex", alignItems: "baseline", gap: 8,
                                   padding: "4px 0", borderBottom: "1px solid var(--bg3)", flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 13, fontWeight: 600, minWidth: 50,
-                                     color: "#f59e0b" }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, minWidth: 50, color: "#f59e0b" }}>
                         {b.tipo_descrizione}
                       </span>
                       <span style={{ fontSize: 11, color: "var(--text2)" }}>
@@ -296,10 +365,20 @@ export function Documenti() {
         </div>
       )}
 
-      {/* Filtri */}
+      {/* Filtri + ricerca */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 14,
                     padding: "12px 14px", background: "var(--bg2)", borderRadius: 8,
                     border: "1px solid var(--border)" }}>
+        <div>
+          <label style={{ fontSize: 11, display: "block", marginBottom: 3 }}>Cerca</label>
+          <div style={{ position: "relative" }}>
+            <i className="ti ti-search" style={{ position: "absolute", left: 8, top: "50%",
+                                                  transform: "translateY(-50%)", color: "var(--text2)", fontSize: 13 }} />
+            <input value={ricerca} onChange={e => setRicerca(e.target.value)}
+                   placeholder="Nome, tipo, fornitore…"
+                   style={{ width: 180, paddingLeft: 28 }} />
+          </div>
+        </div>
         <div>
           <label style={{ fontSize: 11, display: "block", marginBottom: 3 }}>Stato</label>
           <select value={filtro.stato} onChange={e => setFilt(f => ({ ...f, stato: e.target.value }))}
@@ -337,9 +416,9 @@ export function Documenti() {
           <input type="month" value={filtro.periodoA}
                  onChange={e => setFilt(f => ({ ...f, periodoA: e.target.value }))} style={{ width: 140 }} />
         </div>
-        {(filtro.stato || filtro.appartamentoId || filtro.tipo || filtro.periodoDA || filtro.periodoA) && (
+        {(filtro.stato || filtro.appartamentoId || filtro.tipo || filtro.periodoDA || filtro.periodoA || ricerca) && (
           <Btn variant="ghost" size="sm"
-               onClick={() => setFilt({ stato: "", appartamentoId: "", tipo: "", periodoDA: "", periodoA: "" })}>
+               onClick={() => { setFilt({ stato: "", appartamentoId: "", tipo: "", periodoDA: "", periodoA: "" }); setRicerca(""); }}>
             ✕ Reset
           </Btn>
         )}
@@ -359,8 +438,15 @@ export function Documenti() {
         )}
       </div>
 
+      {/* Conteggio risultati ricerca */}
+      {ricerca && (
+        <div style={{ fontSize: 12, color: "var(--text2)", marginBottom: 8 }}>
+          {docsFiltrati.length} risultat{docsFiltrati.length === 1 ? "o" : "i"} per "{ricerca}"
+        </div>
+      )}
+
       {/* Tabella */}
-      {docs.length === 0
+      {docsFiltrati.length === 0
         ? <div className="alert alert-info"><i className="ti ti-info-circle" />Nessun documento trovato.</div>
         : (
           <div style={{ overflowX: "auto" }}>
@@ -369,17 +455,21 @@ export function Documenti() {
                 <tr>
                   <th style={{ width: 36, textAlign: "center" }}>
                     <input type="checkbox"
-                           checked={sel.size > 0 && sel.size === docs.length}
-                           ref={el => { if (el) el.indeterminate = sel.size > 0 && sel.size < docs.length; }}
+                           checked={sel.size > 0 && sel.size === docsFiltrati.length}
+                           ref={el => { if (el) el.indeterminate = sel.size > 0 && sel.size < docsFiltrati.length; }}
                            onChange={toggleAll} />
                   </th>
-                  <th>File</th><th>Appartamento</th><th>Tipo</th>
-                  <th>Periodo</th><th style={{ textAlign: "right" }}>Importo</th>
-                  <th>Stato</th><th style={{ textAlign: "right" }}>Azioni</th>
+                  <SortTh col="nome_file"         label="File"         sort={sort} setSort={setSort} />
+                  <SortTh col="appartamento_nome" label="Appartamento" sort={sort} setSort={setSort} />
+                  <SortTh col="tipo_descrizione"  label="Tipo"         sort={sort} setSort={setSort} />
+                  <SortTh col="periodo_da"        label="Periodo"      sort={sort} setSort={setSort} />
+                  <SortTh col="importo"           label="Importo"      sort={sort} setSort={setSort} style={{ textAlign: "right" }} />
+                  <th>Stato</th>
+                  <th style={{ textAlign: "right" }}>Azioni</th>
                 </tr>
               </thead>
               <tbody>
-                {docs.map(d => (
+                {docsFiltrati.map(d => (
                   <tr key={d.id} style={{
                     background: sel.has(d.id) ? "rgba(59,130,246,0.10)"
                               : d.stato !== "elaborato" ? "rgba(234,179,8,0.03)" : "",
@@ -407,6 +497,19 @@ export function Documenti() {
                     <td><StatoBadge stato={d.stato} /></td>
                     <td>
                       <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+                        {/* Visualizza nel documentale se collegato */}
+                        {d.archivio_doc_id && (
+                          <Btn variant="ghost" size="sm" title="Visualizza nel documentale"
+                               onClick={() => window.open(archivioApi.fileUrl(d.archivio_doc_id), "_blank")}>
+                            <i className="ti ti-folder-open" />
+                          </Btn>
+                        )}
+                        {/* Rinomina */}
+                        <Btn variant="ghost" size="sm" title="Rinomina"
+                             onClick={() => setRename({ id: d.id, nomeCorrente: d.nome_file })}>
+                          <i className="ti ti-pencil" />
+                        </Btn>
+                        {/* Modifica */}
                         <Btn variant="secondary" size="sm" onClick={async () => {
                             const full = await documentiApi.get(d.id);
                             let pdfUrl = null;
@@ -435,10 +538,13 @@ export function Documenti() {
               <tfoot>
                 <tr style={{ borderTop: "2px solid var(--border)" }}>
                   <td colSpan={5} style={{ padding: "8px 12px", fontWeight: 600, color: "var(--text2)", fontSize: 12 }}>
-                    Elaborati: {docs.filter(d => d.stato === "elaborato").length} / {docs.length}
+                    Elaborati: {docsFiltrati.filter(d => d.stato === "elaborato").length} / {docsFiltrati.length}
+                    {ricerca && docs.length !== docsFiltrati.length
+                      ? ` (filtrati da ${docs.length})`
+                      : ""}
                   </td>
                   <td style={{ textAlign: "right", fontWeight: 700, padding: "8px 12px" }}>
-                    {euro(docs.filter(d => d.stato === "elaborato").reduce((s, d) => s + parseFloat(d.importo || 0), 0))}
+                    {euro(docsFiltrati.filter(d => d.stato === "elaborato").reduce((s, d) => s + parseFloat(d.importo || 0), 0))}
                   </td>
                   <td colSpan={2} />
                 </tr>
@@ -456,6 +562,13 @@ export function Documenti() {
           onSave={saveEdit}
           onSkip={queue.filter(q => q.stato === "pronto").length > 1 ? salta : null}
           onClose={() => setEdit(null)}
+        />
+      )}
+      {rename && (
+        <RenameModal
+          nomeCorrente={rename.nomeCorrente}
+          onSave={nome => doRename(rename.id, nome)}
+          onClose={() => setRename(null)}
         />
       )}
       {conf && <Confirm msg={conf.msg} onYes={conf.onYes} onNo={() => setConf(null)} />}
@@ -479,7 +592,6 @@ function DocEditModal({ doc: initDoc, pdfUrl, apps, tipi, queueLeft = 0, onSave,
     setShowPdf(!!pdfUrl);
   }, [pdfUrl]);
 
-  // Auto-imposta il proprietario di default quando cambia appartamento o periodo
   useEffect(() => {
     if (!doc.appartamento_id || !doc.periodo_da) return;
     if (doc.pagato_da_proprietario_id) return;
@@ -506,7 +618,6 @@ function DocEditModal({ doc: initDoc, pdfUrl, apps, tipi, queueLeft = 0, onSave,
                     width: "100%", maxWidth: showPdf && pdfUrl ? 1120 : 580, height: "92vh",
                     display: "flex", flexDirection: "column", transition: "max-width 0.2s" }}>
 
-        {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
                       padding: "12px 20px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
           <div>
@@ -539,9 +650,7 @@ function DocEditModal({ doc: initDoc, pdfUrl, apps, tipi, queueLeft = 0, onSave,
           </div>
         </div>
 
-        {/* Body */}
         <div style={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
-          {/* Form */}
           <div style={{ width: showPdf && pdfUrl ? 390 : "100%", flexShrink: 0, overflowY: "auto",
                         padding: 20, borderRight: showPdf && pdfUrl ? "1px solid var(--border)" : "none" }}>
             {mancanti.length > 0 && (
@@ -561,7 +670,6 @@ function DocEditModal({ doc: initDoc, pdfUrl, apps, tipi, queueLeft = 0, onSave,
               </div>
             )}
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              {/* Nome file — sempre visibile e modificabile */}
               <Field label="Nome documento *" warn={!doc.nome_file}>
                 <input
                   value={doc.nome_file || ""}
@@ -626,7 +734,6 @@ function DocEditModal({ doc: initDoc, pdfUrl, apps, tipi, queueLeft = 0, onSave,
             </div>
           </div>
 
-          {/* Anteprima PDF inline */}
           {showPdf && pdfUrl && (
             <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, background: "#111" }}>
               <div style={{ padding: "6px 14px", fontSize: 11, color: "var(--text2)",
@@ -647,7 +754,6 @@ function DocEditModal({ doc: initDoc, pdfUrl, apps, tipi, queueLeft = 0, onSave,
           )}
         </div>
 
-        {/* Footer */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
                       padding: "12px 20px", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
           <p style={{ margin: 0, fontSize: 12,

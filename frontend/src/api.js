@@ -253,24 +253,41 @@ export const associazioniApi = {
 // ── REPORT ────────────────────────────────────────────────────────────────────
 // ── ADMIN ─────────────────────────────────────────────────────────────────────
 export const adminApi = {
-  backup: async () => {
-    const res = await fetch(`${BASE}/admin/backup`);
+  backup: async (tipo = "tutto") => {
+    const res = await fetch(`${BASE}/admin/backup?tipo=${tipo}`);
     if (!res.ok) throw new Error(`Backup fallito: HTTP ${res.status}`);
     const blob = await res.blob();
     const date = new Date().toISOString().slice(0, 10);
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement("a");
     a.href     = url;
-    a.download = `gsa_backup_${date}.zip`;
+    a.download = `gsa_backup_${tipo}_${date}.zip`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
   },
-  restore: file => {
+  restore: (file, tipo = "tutto") => {
     const fd = new FormData();
     fd.append("file", file);
-    return up("/admin/restore", fd);
+    return up(`/admin/restore?tipo=${tipo}`, fd);
+  },
+  logsStatus:   ()        => get("/admin/logs/status"),
+  logsToggle:   (enabled) => post("/admin/logs/toggle", { enabled }),
+  logsClear:    ()        => del("/admin/logs"),
+  logsDownload: async () => {
+    const res = await fetch(`${BASE}/admin/logs/download`);
+    if (!res.ok) throw new Error(`Download log fallito: HTTP ${res.status}`);
+    const blob = await res.blob();
+    const date = new Date().toISOString().slice(0, 10);
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = `gsa_${date}.log`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
   },
 };
 

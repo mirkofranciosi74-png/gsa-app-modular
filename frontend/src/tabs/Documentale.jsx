@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { archivioTipiApi, archivioApi, appartamentiApi, proprietariApi } from "../api.js";
+import { archivioTipiApi, archivioApi, appartamentiApi, proprietariApi, documentiApi } from "../api.js";
 import { Btn, Badge, Modal, Field, SectionHeader, Confirm } from "../components/ui.jsx";
 import { toITdate } from "../utils/formatters.js";
 
@@ -13,8 +13,39 @@ function mimeIcon(mime) {
   return "ti-file";
 }
 
-const ENTITA_LABELS = { appartamento: "Appartamento", inquilino: "Inquilino", proprietario: "Proprietario" };
-const ENTITA_COLORS = { appartamento: "blue", inquilino: "green", proprietario: "purple" };
+const ENTITA_LABELS = {
+  appartamento: "Appartamento",
+  inquilino:    "Inquilino",
+  proprietario: "Proprietario",
+  spesa:        "Spesa (documento)",
+};
+const ENTITA_COLORS = {
+  appartamento: "blue",
+  inquilino:    "green",
+  proprietario: "purple",
+  spesa:        "yellow",
+};
+
+// ── Modal rinomina ─────────────────────────────────────────────────────────────
+function RenameModal({ nomeCorrente, onSave, onClose }) {
+  const [nome, setNome] = useState(nomeCorrente);
+  return (
+    <Modal title="Rinomina file" onClose={onClose} width={420}
+           footer={<>
+             <Btn variant="ghost" onClick={onClose}>Annulla</Btn>
+             <Btn variant="primary" onClick={() => nome.trim() && onSave(nome.trim())}
+                  disabled={!nome.trim()}>
+               <i className="ti ti-check" /> Rinomina
+             </Btn>
+           </>}>
+      <Field label="Nuovo nome file">
+        <input autoFocus value={nome} onChange={e => setNome(e.target.value)}
+               onKeyDown={e => e.key === "Enter" && nome.trim() && onSave(nome.trim())}
+               placeholder="Nome file" />
+      </Field>
+    </Modal>
+  );
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Gestione Tipi Documento
@@ -96,10 +127,7 @@ function TipiDocumento() {
 }
 
 function TipoModal({ initial, onSave, onClose }) {
-  const [form, setForm] = useState({
-    nome: "", descrizione: "", entita: [],
-    ...initial,
-  });
+  const [form, setForm] = useState({ nome: "", descrizione: "", entita: [], ...initial });
 
   const toggleEnt = e => setForm(f => ({
     ...f,
@@ -128,7 +156,7 @@ function TipoModal({ initial, onSave, onClose }) {
           <input className="inp" value={form.descrizione || ""} onChange={e => setForm(f => ({ ...f, descrizione: e.target.value }))} />
         </Field>
         <Field label="Applicabile a">
-          <div style={{ display: "flex", gap: 16, marginTop: 4 }}>
+          <div style={{ display: "flex", gap: 16, marginTop: 4, flexWrap: "wrap" }}>
             {Object.entries(ENTITA_LABELS).map(([k, lbl]) => (
               <label key={k} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13 }}>
                 <input type="checkbox" checked={form.entita.includes(k)} onChange={() => toggleEnt(k)} />
@@ -152,8 +180,14 @@ function Archivio() {
   const [props,    setProps]   = useState([]);
   const [filtro,   setFilt]    = useState({ tipoId: "", entitaTipo: "", entitaId: "" });
   const [modal,    setModal]   = useState(null);
+  const [rename,   setRename]  = useState(null);  // { id, nomeCorrente }
   const [conf,     setConf]    = useState(null);
-  const fileRef = useRef();
+  const [errFile,  setErrFile] = useState(null);  // id del file non trovato
+  // bulk upload queue: array di { file, done }
+  const [bulkQueue,  setBulkQueue]  = useState([]);
+  const [bulkIndex,  setBulkIndex]  = useState(0);
+  const fileRef     = useRef();
+  const bulkFileRef = useRef();
 
   const load = useCallback(() =>
     archivioApi.list({
@@ -172,11 +206,9 @@ function Archivio() {
     ]).then(([t, a, p]) => { setTipi(t); setApps(a); setProps(p); });
   }, []);
 
-  // Carica componenti (inquilini) per l'appartamento selezionato
   const [inquilini, setInquilini] = useState([]);
   useEffect(() => {
     if (filtro.entitaTipo !== "inquilino") { setInquilini([]); return; }
-    // Carica tutti gli inquilini da tutti gli appartamenti
     Promise.all(apps.map(a => appartamentiApi.get(a.id)))
       .then(lista => {
         const all = lista.flatMap(a => (a.componenti || []).map(c => ({
@@ -193,6 +225,20 @@ function Archivio() {
     setModal({ mode: "upload", file, tipDocId: "", note: "", associazioni: [] });
   }
 
+  async function handleBulkUpload(files) {
+    if (!files.length) return;
+    setBulkQueue(Array.from(files).map(f => ({ file: f, done: false })));
+    setBulkIndex(0);
+  }
+
+  // Quando bulkQueue è pronto, apri il modal per il file corrente
+  useEffect(() => {
+    if (!bulkQueue.length) return;
+    const current = bulkQueue[bulkIndex];
+    if (!current || current.done) return;
+    setModal({ mode: "upload", file: current.file, tipDocId: "", note: "", associazioni: [], _bulk: true });
+  }, [bulkQueue, bulkIndex]);
+
   async function doUpload(form) {
     try {
       await archivioApi.upload(form.file, {
@@ -200,7 +246,17 @@ function Archivio() {
         note: form.note || undefined,
         associazioni: form.associazioni,
       });
-      setModal(null); load();
+      setModal(null);
+      if (form._bulk) {
+        setBulkQueue(q => q.map((item, i) => i === bulkIndex ? { ...item, done: true } : item));
+        const nextIndex = bulkIndex + 1;
+        if (nextIndex < bulkQueue.length) {
+          setBulkIndex(nextIndex);
+        } else {
+          setBulkQueue([]); setBulkIndex(0);
+        }
+      }
+      load();
     } catch (e) { alert("Errore: " + e.message); }
   }
 
@@ -215,13 +271,27 @@ function Archivio() {
     } catch (e) { alert("Errore: " + e.message); }
   }
 
+  async function doRename(id, nomeFile) {
+    try {
+      await archivioApi.update(id, { nome_file: nomeFile });
+      setRename(null); load();
+    } catch (e) { alert("Errore: " + e.message); }
+  }
+
   async function del(id) {
     try { await archivioApi.delete(id); setConf(null); load(); }
     catch (e) { alert("Errore: " + e.message); }
   }
 
-  function openFile(doc) {
-    window.open(archivioApi.fileUrl(doc.id), "_blank");
+  async function openFile(doc) {
+    setErrFile(null);
+    try {
+      const res = await fetch(archivioApi.fileUrl(doc.id), { method: "HEAD" });
+      if (!res.ok) { setErrFile(doc.id); return; }
+      window.open(archivioApi.fileUrl(doc.id), "_blank");
+    } catch {
+      setErrFile(doc.id);
+    }
   }
 
   const entitaOptions = {
@@ -234,12 +304,35 @@ function Archivio() {
     <div>
       {/* Toolbar */}
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginBottom: 14 }}>
+        <Btn variant="ghost" onClick={() => bulkFileRef.current.click()}>
+          <i className="ti ti-layers-union" /> Carica multiple
+        </Btn>
+        <input ref={bulkFileRef} type="file" multiple style={{ display: "none" }}
+               onChange={e => { if (e.target.files.length) handleBulkUpload(e.target.files); e.target.value = ""; }} />
         <Btn variant="secondary" onClick={() => fileRef.current.click()}>
           <i className="ti ti-upload" /> Carica documento
         </Btn>
         <input ref={fileRef} type="file" style={{ display: "none" }} multiple={false}
                onChange={e => { if (e.target.files[0]) handleUpload(e.target.files[0]); e.target.value = ""; }} />
       </div>
+
+      {/* Indicatore bulk upload */}
+      {bulkQueue.length > 0 && (
+        <div className="alert alert-info" style={{ marginBottom: 14 }}>
+          <i className="ti ti-layers-union" />
+          <div>
+            <strong>Caricamento multiplo</strong>
+            <p style={{ margin: "2px 0 0", fontSize: 13 }}>
+              File {bulkIndex + 1} di {bulkQueue.length}: <em>{bulkQueue[bulkIndex]?.file?.name}</em>
+            </p>
+          </div>
+          <Btn variant="ghost" size="sm"
+               onClick={() => { setBulkQueue([]); setBulkIndex(0); setModal(null); }}
+               style={{ marginLeft: "auto" }}>
+            Annulla
+          </Btn>
+        </div>
+      )}
 
       {/* Filtri */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 14,
@@ -313,6 +406,11 @@ function Archivio() {
                                      padding: 0, textAlign: "left" }}>
                       {d.nome_file}
                     </button>
+                    {errFile === d.id && (
+                      <span style={{ marginLeft: 8, fontSize: 11, color: "var(--red)" }}>
+                        <i className="ti ti-file-off" /> File non trovato sul server
+                      </span>
+                    )}
                   </td>
                   <td>{d.tipo_nome
                     ? <Badge label={d.tipo_nome} color="gray" />
@@ -322,7 +420,7 @@ function Archivio() {
                     <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                       {(d.associazioni || []).map(a => (
                         <Badge key={a.id}
-                               label={`${ENTITA_LABELS[a.entita_tipo]}: ${a.entita_nome || a.entita_id}`}
+                               label={`${ENTITA_LABELS[a.entita_tipo] || a.entita_tipo}: ${a.entita_nome || a.entita_id}`}
                                color={ENTITA_COLORS[a.entita_tipo] || "gray"} />
                       ))}
                       {!(d.associazioni?.length) &&
@@ -337,6 +435,10 @@ function Archivio() {
                     <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
                       <Btn variant="ghost" size="sm" title="Apri" onClick={() => openFile(d)}>
                         <i className="ti ti-eye" />
+                      </Btn>
+                      <Btn variant="ghost" size="sm" title="Rinomina"
+                           onClick={() => setRename({ id: d.id, nomeCorrente: d.nome_file })}>
+                        <i className="ti ti-pencil" />
                       </Btn>
                       <Btn variant="secondary" size="sm" title="Modifica"
                            onClick={() => setModal({
@@ -369,8 +471,19 @@ function Archivio() {
           tipi={tipi}
           apps={apps}
           props={props}
+          bulkInfo={modal._bulk ? { current: bulkIndex + 1, total: bulkQueue.length } : null}
           onSave={modal.mode === "upload" ? doUpload : doUpdate}
-          onClose={() => setModal(null)}
+          onClose={() => {
+            setModal(null);
+            if (modal._bulk) { setBulkQueue([]); setBulkIndex(0); }
+          }}
+        />
+      )}
+      {rename && (
+        <RenameModal
+          nomeCorrente={rename.nomeCorrente}
+          onSave={nome => doRename(rename.id, nome)}
+          onClose={() => setRename(null)}
         />
       )}
       {conf && <Confirm msg={conf.msg} onYes={conf.onYes} onNo={() => setConf(null)} />}
@@ -381,9 +494,10 @@ function Archivio() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Modal caricamento / modifica documento
 // ─────────────────────────────────────────────────────────────────────────────
-function DocModal({ mode, initial, tipi, apps, props, onSave, onClose }) {
+function DocModal({ mode, initial, tipi, apps, props, bulkInfo, onSave, onClose }) {
   const [form, setForm] = useState({ ...initial });
   const [inquilini, setInquilini] = useState([]);
+  const [spese,     setSpese]     = useState([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -398,7 +512,16 @@ function DocModal({ mode, initial, tipi, apps, props, onSave, onClose }) {
       .catch(() => {});
   }, [apps]);
 
-  // Il tipo selezionato determina quali entità sono disponibili per associazione
+  // Carica spese per associazione tipo "spesa"
+  useEffect(() => {
+    const needsSpese = (form.tipDocId === "" || !form.tipDocId)
+      ? true
+      : (tipi.find(t => t.id === form.tipDocId)?.entita || []).includes("spesa");
+    if (needsSpese) {
+      documentiApi.list({}).then(setSpese).catch(() => {});
+    }
+  }, [form.tipDocId, tipi]);
+
   const tipoSel = tipi.find(t => t.id === form.tipDocId);
   const entitaDisponibili = tipoSel?.entita || Object.keys(ENTITA_LABELS);
 
@@ -406,6 +529,11 @@ function DocModal({ mode, initial, tipi, apps, props, onSave, onClose }) {
     appartamento: apps.map(a => ({ id: a.id, nome: a.nome })),
     inquilino:    inquilini,
     proprietario: props.map(p => ({ id: p.id, nome: `${p.nome} ${p.cognome || ""}`.trim() })),
+    spesa:        spese.map(s => ({
+      id: s.id,
+      nome: s.nome_file || `Spesa ${s.id.slice(0, 6)}`,
+      app: s.appartamento_nome || "",
+    })),
   };
 
   function toggleAssoc(tipo, id) {
@@ -428,16 +556,30 @@ function DocModal({ mode, initial, tipi, apps, props, onSave, onClose }) {
 
   return (
     <Modal
-      title={mode === "upload" ? `Carica: ${form.file?.name}` : "Modifica documento"}
+      title={mode === "upload"
+        ? `Carica: ${form.file?.name}${bulkInfo ? ` (${bulkInfo.current}/${bulkInfo.total})` : ""}`
+        : "Modifica documento"}
       onClose={onClose} width={560}
       footer={<>
-        <Btn variant="ghost" onClick={onClose}>Annulla</Btn>
+        <Btn variant="ghost" onClick={onClose}>
+          {bulkInfo ? "Salta" : "Annulla"}
+        </Btn>
         <Btn variant="primary" onClick={save} disabled={saving}>
-          {saving ? "Salvo…" : mode === "upload" ? "Carica" : "Salva"}
+          {saving ? "Salvo…" : mode === "upload" ? (bulkInfo ? "Carica e prossimo" : "Carica") : "Salva"}
         </Btn>
       </>}
     >
       <div style={{ display: "grid", gap: 16 }}>
+        {bulkInfo && (
+          <div style={{ display: "flex", gap: 6, alignItems: "center",
+                        padding: "6px 12px", background: "rgba(59,130,246,0.1)",
+                        borderRadius: 6, border: "1px solid rgba(59,130,246,0.3)" }}>
+            <i className="ti ti-layers-union" style={{ color: "var(--accent)" }} />
+            <span style={{ fontSize: 12, color: "var(--accent)", fontWeight: 600 }}>
+              Caricamento multiplo — file {bulkInfo.current} di {bulkInfo.total}
+            </span>
+          </div>
+        )}
         <Field label="Tipo documento">
           <select className="inp" value={form.tipDocId}
                   onChange={e => setForm(f => ({ ...f, tipDocId: e.target.value }))}>
@@ -462,9 +604,9 @@ function DocModal({ mode, initial, tipi, apps, props, onSave, onClose }) {
                 <div key={tipo}>
                   <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em",
                                 color: "var(--text2)", marginBottom: 6 }}>
-                    {ENTITA_LABELS[tipo]}
+                    {ENTITA_LABELS[tipo] || tipo}
                   </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxHeight: 120, overflowY: "auto" }}>
                     {(entitaOptions[tipo] || []).map(x => {
                       const sel = form.associazioni.some(a => a.entita_tipo === tipo && a.entita_id === x.id);
                       return (
@@ -482,7 +624,7 @@ function DocModal({ mode, initial, tipi, apps, props, onSave, onClose }) {
                     })}
                     {!(entitaOptions[tipo]?.length) &&
                       <span style={{ fontSize: 12, color: "var(--text2)" }}>
-                        Nessun{tipo === "appartamento" ? "" : "a"} {ENTITA_LABELS[tipo].toLowerCase()} disponibile
+                        Nessun elemento disponibile
                       </span>
                     }
                   </div>
@@ -511,7 +653,6 @@ export function Documentale() {
     <div>
       <SectionHeader title="Documentale" />
 
-      {/* Sub-nav */}
       <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: "1px solid var(--border)",
                     paddingBottom: 8 }}>
         {SUB.map(s => (
@@ -545,6 +686,7 @@ export function DocListEntita({ entitaTipo, entitaId, label }) {
   const [apps,  setApps]  = useState([]);
   const [props, setProps] = useState([]);
   const [conf,  setConf]  = useState(null);
+  const [errFile, setErrFile] = useState(null);
   const fileRef = useRef();
 
   const load = useCallback(() => {
@@ -588,6 +730,15 @@ export function DocListEntita({ entitaTipo, entitaId, label }) {
   async function del(id) {
     try { await archivioApi.delete(id); setConf(null); load(); }
     catch (e) { alert("Errore: " + e.message); }
+  }
+
+  async function openFile(doc) {
+    setErrFile(null);
+    try {
+      const res = await fetch(archivioApi.fileUrl(doc.id), { method: "HEAD" });
+      if (!res.ok) { setErrFile(doc.id); return; }
+      window.open(archivioApi.fileUrl(doc.id), "_blank");
+    } catch { setErrFile(doc.id); }
   }
 
   return (
@@ -634,10 +785,18 @@ export function DocListEntita({ entitaTipo, entitaId, label }) {
                                            borderRadius: 6, border: "1px solid var(--border)" }}>
                     <i className={`ti ${mimeIcon(d.mime_type)}`}
                        style={{ fontSize: 16, color: "var(--text2)", flexShrink: 0 }} />
-                    <span style={{ flex: 1, fontSize: 13, fontWeight: 500,
-                                   overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {d.nome_file}
-                    </span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ fontSize: 13, fontWeight: 500,
+                                     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                                     display: "block" }}>
+                        {d.nome_file}
+                      </span>
+                      {errFile === d.id && (
+                        <span style={{ fontSize: 11, color: "var(--red)" }}>
+                          <i className="ti ti-file-off" /> File non trovato sul server
+                        </span>
+                      )}
+                    </div>
                     {d.tipo_nome && <Badge label={d.tipo_nome} color="gray" />}
                     {d.note && (
                       <span style={{ fontSize: 11, color: "var(--text2)", maxWidth: 120,
@@ -647,7 +806,7 @@ export function DocListEntita({ entitaTipo, entitaId, label }) {
                     )}
                     <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
                       <Btn variant="ghost" size="sm" title="Apri"
-                           onClick={() => window.open(archivioApi.fileUrl(d.id), "_blank")}>
+                           onClick={() => openFile(d)}>
                         <i className="ti ti-eye" />
                       </Btn>
                       <Btn variant="secondary" size="sm" title="Modifica"
