@@ -577,6 +577,7 @@ export async function grigliaPropretari(appId, periodoDA, periodoA) {
 
     righeDocumenti.push({
       tipo_descrizione:          d.tipo_descrizione || d.nome_file,
+      nome_file:                 d.nome_file        || null,
       fornitore:                 d.fornitore,
       periodo_da:                dDA,
       periodo_a:                 dA,

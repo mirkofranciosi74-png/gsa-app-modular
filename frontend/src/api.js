@@ -106,6 +106,12 @@ export const documentiApi = {
   // URL diretta al PDF salvato sul server (usata per preview in modifica)
   pdfUrl: id => `${BASE}/documenti/${id}/pdf`,
 
+  uploadPdf: (id, file) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return up(`/documenti/${id}/pdf`, fd);
+  },
+
   extractBulk: async (files, onProgress = () => {}) => {
     const results = [];
     for (let i = 0; i < files.length; i++) {
@@ -128,9 +134,10 @@ export const movimentiApi = {
     ).toString();
     return get(`/movimenti${qs ? "?" + qs : ""}`);
   },
-  create: d        => post("/movimenti", d),
-  update: (id, d)  => put(`/movimenti/${id}`, d),
-  delete: id       => del(`/movimenti/${id}`),
+  create:      d        => post("/movimenti", d),
+  update:      (id, d)  => put(`/movimenti/${id}`, d),
+  updateStato: (id, s)  => http("PATCH", `/movimenti/${id}/stato`, { stato: s }),
+  delete:      id       => del(`/movimenti/${id}`),
 
 };
 
@@ -164,6 +171,26 @@ export const grigliaApi = {
     const qs = new URLSearchParams(f).toString();
     return get(`/griglia/versatoperiodo?${qs}`);
   },
+  downloadExcel: async ({ appartamentoId, periodoDA, periodoA, modo = "tutti" }) => {
+    const qs = new URLSearchParams(
+      Object.fromEntries(
+        Object.entries({ appartamentoId, periodoDA, periodoA, modo })
+          .filter(([, v]) => v)
+      )
+    ).toString();
+    const res  = await fetch(`${BASE}/griglia/export-excel?${qs}`);
+    if (!res.ok) throw new Error(`Export fallito: HTTP ${res.status}`);
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = `griglia_${modo}_${periodoDA || "tutto"}_${periodoA || "oggi"}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  },
+
   downloadZip: async ({ appartamentoId, periodoDA, periodoA }) => {
     const qs = new URLSearchParams(
       Object.fromEntries(
@@ -191,6 +218,14 @@ export const tipiSpesaApi = {
   create: d        => post("/tipi-spesa", d),
   update: (id, d)  => put(`/tipi-spesa/${id}`, d),
   delete: id       => del(`/tipi-spesa/${id}`),
+};
+
+// ── TIPI VERSAMENTO ───────────────────────────────────────────────────────────
+export const tipiVersamentoApi = {
+  list:   ()       => get("/tipi-versamento"),
+  create: d        => post("/tipi-versamento", d),
+  update: (id, d)  => put(`/tipi-versamento/${id}`, d),
+  delete: id       => del(`/tipi-versamento/${id}`),
 };
 
 // ── REGOLE RIPARTO ────────────────────────────────────────────────────────────
@@ -234,25 +269,35 @@ export const archivioApi = {
 
 // ── PROPRIETARI ───────────────────────────────────────────────────────────────
 export const proprietariApi = {
-  list:   ()       => get("/proprietari"),
-  get:    id       => get(`/proprietari/${id}`),
-  create: d        => post("/proprietari", d),
-  update: (id, d)  => put(`/proprietari/${id}`, d),
-  delete: id       => del(`/proprietari/${id}`),
+  list:        ()              => get("/proprietari"),
+  get:         id              => get(`/proprietari/${id}`),
+  create:      d               => post("/proprietari", d),
+  update:      (id, d)         => put(`/proprietari/${id}`, d),
+  delete:      id              => del(`/proprietari/${id}`),
+  dipendenze:  id              => get(`/proprietari/${id}/dipendenze`),
+  elimina:     (id, nuovoId)   => post(`/proprietari/${id}/elimina`, { nuovoProprietarioId: nuovoId || null }),
 };
 
 export const associazioniApi = {
-  listByAppartamento: appId  => get(`/associazioni/appartamento/${appId}`),
-  create:             d      => post("/associazioni", d),
-  update:             (id, d) => put(`/associazioni/${id}`, d),
-  delete:             id     => del(`/associazioni/${id}`),
-  defaultPerData:     (appartamentoId, data) =>
+  listByAppartamento:       appId      => get(`/associazioni/appartamento/${appId}`),
+  create:                   d          => post("/associazioni", d),
+  update:                   (id, d)    => put(`/associazioni/${id}`, d),
+  delete:                   id         => del(`/associazioni/${id}`),
+  defaultPerData:           (appartamentoId, data) =>
     get(`/associazioni/default?appartamentoId=${appartamentoId}&data=${data}`),
+  bulkUpdateIncassatore:    d          => post("/associazioni/bulk-update-incassatore", d),
+  bulkUpdatePagatore:       d          => post("/associazioni/bulk-update-pagatore", d),
+  verificaAnomalie:         ()         => get("/associazioni/anomalie"),
+  dipendenze:               id            => get(`/associazioni/${id}/dipendenze`),
+  elimina:                  (id, nuovoId) => post(`/associazioni/${id}/elimina`, { nuovoId: nuovoId || null }),
+  anomalieValidita:         id            => get(`/associazioni/${id}/anomalie-validita`),
+  riassegnaAnomalie:        (id, nuovoId) => post(`/associazioni/${id}/riassegna-anomalie`, { nuovoId: nuovoId || null }),
 };
 
 // ── REPORT ────────────────────────────────────────────────────────────────────
 // ── ADMIN ─────────────────────────────────────────────────────────────────────
 export const adminApi = {
+  verificaCoerenza: () => get("/admin/verifica-coerenza"),
   backup: async (tipo = "tutto") => {
     const res = await fetch(`${BASE}/admin/backup?tipo=${tipo}`);
     if (!res.ok) throw new Error(`Backup fallito: HTTP ${res.status}`);
@@ -289,6 +334,21 @@ export const adminApi = {
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
   },
+};
+
+// ── IMPORTAZIONE ESTRATTO CONTO ───────────────────────────────────────────────
+export const importazioneApi = {
+  parse: (file) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return up("/importazione/parse", fd);
+  },
+  import:           (righe) => post("/importazione/import", { righe }),
+  checkDuplicati:   (righe) => post("/importazione/check-duplicati", { righe }),
+  listRegole:   ()       => get("/importazione/regole"),
+  saveRegola:   d        => post("/importazione/regole", d),
+  updateRegola: (id, d)  => put(`/importazione/regole/${id}`, d),
+  deleteRegola: id       => del(`/importazione/regole/${id}`),
 };
 
 export const reportApi = {

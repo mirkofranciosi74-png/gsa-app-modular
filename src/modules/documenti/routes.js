@@ -1,5 +1,6 @@
 import { Router }       from "express";
 import multer           from "multer";
+import crypto           from "crypto";
 import { h }            from "../../shared/middleware.js";
 import * as docRepo     from "./repo.js";
 import * as appRepo     from "../anagrafica/appartamentiRepo.js";
@@ -19,7 +20,10 @@ documentiRouter.get("/buchi-utenze",  h(async (q, r) => {
   const { periodoDA, periodoA } = q.query;
   r.json(await docRepo.verificaBuchiUtenze(periodoDA || null, periodoA || null));
 }));
-documentiRouter.get("/",      h(async (q, r) => r.json(await docRepo.listAll(q.query))));
+documentiRouter.get("/", h(async (q, r) => {
+  const docs = await docRepo.listAll(q.query);
+  r.json(docs.map(d => ({ ...d, pdf_disponibile: pdfEsiste(d.id) })));
+}));
 documentiRouter.get("/:id",   h(async (q, r) => {
   const d = await docRepo.findById(q.params.id);
   if (!d) return r.status(404).json({ error: "Non trovato" });
@@ -67,6 +71,21 @@ documentiRouter.post("/extract", up.single("file"), h(async (req, res) => {
     pdf_base64:        req.file.buffer.toString("base64"),
     pdf_disponibile:   true,
   });
+}));
+
+// Carica o sostituisce il PDF di una spesa esistente (senza estrarre dati)
+documentiRouter.post("/:id/pdf", up.single("file"), h(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "Nessun file" });
+  const doc = await docRepo.findById(req.params.id);
+  if (!doc) return res.status(404).json({ error: "Non trovato" });
+
+  const hash  = crypto.createHash("sha256").update(req.file.buffer).digest("hex");
+  const dupId = await docRepo.existsByHash(hash, req.params.id);
+
+  salvaPdf(req.params.id, req.file.buffer);
+  await docRepo.updateFileHash(req.params.id, hash);
+
+  res.json({ ok: true, pdf_disponibile: true, duplicato_di: dupId || null });
 }));
 
 documentiRouter.post("/",    h(async (q, r) => r.status(201).json(await docRepo.create(q.body))));

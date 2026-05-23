@@ -46,11 +46,15 @@ export async function findById(id) {
   return rows[0] || null;
 }
 
-export async function existsByHash(hash) {
-  const rows = await query(
-    `SELECT id FROM documenti WHERE file_hash = $1 LIMIT 1`, [hash]
-  );
+export async function existsByHash(hash, excludeId = null) {
+  const rows = excludeId
+    ? await query(`SELECT id FROM documenti WHERE file_hash = $1 AND id != $2 LIMIT 1`, [hash, excludeId])
+    : await query(`SELECT id FROM documenti WHERE file_hash = $1 LIMIT 1`, [hash]);
   return rows[0]?.id || null;
+}
+
+export async function updateFileHash(id, hash) {
+  await query(`UPDATE documenti SET file_hash = $1 WHERE id = $2`, [hash, id]);
 }
 
 export async function stats() {

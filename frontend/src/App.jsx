@@ -23,7 +23,6 @@ const TABS = [
   { id: "documenti",    label: "Spese",           icon: "ti-files"            },
   { id: "movimenti",    label: "Entrate",         icon: "ti-transfer-in"      },
   { id: "riparti",      label: "Riparti",         icon: "ti-adjustments-alt"  },
-  { id: "tipi",         label: "Tipi Spesa",      icon: "ti-tag"              },
   { id: "documentale",  label: "Documentale",     icon: "ti-archive"          },
   { id: "admin",        label: "Amministrazione", icon: "ti-settings"         },
 ];
@@ -75,7 +74,6 @@ export default function App() {
         {tab === "appartamenti" && <Appartamenti />}
         {tab === "componenti"   && <Componenti />}
         {tab === "proprietari"  && <Proprietari />}
-        {tab === "tipi"         && <Tipologie />}
         {tab === "documenti"    && <Documenti />}
         {tab === "movimenti"    && <Versamenti />}
         {tab === "riparti"      && <Riparti />}

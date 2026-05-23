@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { appartamentiApi, movimentiApi, grigliaApi, documentiApi } from "../api.js";
+import { appartamentiApi, movimentiApi, grigliaApi, documentiApi, tipiVersamentoApi } from "../api.js";
 import { Btn, Field, SectionHeader } from "../components/ui.jsx";
 import { euro, mesL, toISO } from "../utils/formatters.js";
 
@@ -11,14 +11,17 @@ export function Griglia() {
   const [pA,          setPA]     = useState("");
   const [dati,        setDati]   = useState(null);
   const [datiProp,    setDatiProp] = useState(null);
-  const [loading,     setLoad]   = useState(false);
-  const [exporting,   setExport] = useState(false);
-  const [errore,      setErr]    = useState(null);
+  const [loading,        setLoad]       = useState(false);
+  const [exporting,      setExport]     = useState(false);
+  const [showExportMenu, setExportMenu] = useState(false);
+  const [errore,         setErr]        = useState(null);
   const [sintetico,     setSintetico]   = useState(false);
   const [modoProp,      setModoProp]    = useState(false);
   const [selInquilino,  setSelInquilino] = useState("");
+  const [tipiVers,      setTipiVers]    = useState([]);
 
   useEffect(() => { appartamentiApi.list().then(setApps); }, []);
+  useEffect(() => { tipiVersamentoApi.list().then(setTipiVers); }, []);
 
   useEffect(() => {
     setSelInquilino("");
@@ -66,6 +69,19 @@ export function Griglia() {
     finally { setExport(false); }
   }
 
+  async function esportaExcel(modo) {
+    setExport(true);
+    try {
+      await grigliaApi.downloadExcel({
+        appartamentoId: selApp,
+        periodoDA: pDA || undefined,
+        periodoA:  pA  || undefined,
+        modo,
+      });
+    } catch (e) { alert("Errore export: " + e.message); }
+    finally { setExport(false); }
+  }
+
   const ym2L = ym => ym ? mesL(ym + "-01") : "";
 
   async function apriPdf(documentoId) {
@@ -105,10 +121,57 @@ export function Griglia() {
             <i className="ti ti-calculator" />{loading ? "Calcolo…" : "Calcola"}
           </Btn>
           {dati && (
-            <Btn variant="secondary" onClick={esportaZip} disabled={exporting}
-              title="Scarica Excel + PDF allegati">
-              <i className="ti ti-file-zip" />{exporting ? "Export…" : "ZIP"}
-            </Btn>
+            <div style={{ position: "relative" }}>
+              <Btn variant="secondary"
+                   onClick={() => setExportMenu(s => !s)}
+                   disabled={exporting}
+                   title="Opzioni di esportazione">
+                <i className="ti ti-download" />
+                {exporting ? "Export…" : "Esporta"}
+                <i className="ti ti-chevron-down" style={{ marginLeft: 4, fontSize: 10 }} />
+              </Btn>
+              {showExportMenu && (
+                <>
+                  <div style={{ position: "fixed", inset: 0, zIndex: 49 }}
+                       onClick={() => setExportMenu(false)} />
+                  <div style={{
+                    position: "absolute", right: 0, top: "110%", zIndex: 50,
+                    background: "var(--bg2)", border: "1px solid var(--border)",
+                    borderRadius: 8, minWidth: 230,
+                    boxShadow: "0 6px 20px rgba(0,0,0,0.35)", overflow: "hidden",
+                  }}>
+                    {[
+                      { label: "Excel completo (3 fogli)", icon: "ti-table", modo: "excel-tutti" },
+                      { label: "Excel inquilini (dettaglio)", icon: "ti-file-spreadsheet", modo: "excel-inquilini" },
+                      { label: "Excel inquilini (sintetico)", icon: "ti-file-spreadsheet", modo: "excel-sintetico" },
+                      { label: "Excel proprietari", icon: "ti-file-spreadsheet", modo: "excel-proprietari" },
+                      { label: "ZIP (Excel + PDF allegati)", icon: "ti-file-zip", modo: "zip" },
+                    ].map((opt, i, arr) => (
+                      <button key={opt.modo}
+                        onClick={() => {
+                          setExportMenu(false);
+                          if (opt.modo === "zip") esportaZip();
+                          else esportaExcel(opt.modo.replace("excel-", ""));
+                        }}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 10,
+                          width: "100%", padding: "10px 14px",
+                          background: "transparent", border: "none",
+                          borderBottom: i < arr.length - 1 ? "1px solid var(--bg3)" : "none",
+                          cursor: "pointer", color: "var(--text1)", fontSize: 13,
+                          textAlign: "left",
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = "var(--bg3)"}
+                        onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                      >
+                        <i className={`ti ${opt.icon}`} style={{ fontSize: 15, flexShrink: 0, color: "var(--accent)" }} />
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
           )}
           {dati && (
             <Btn variant={modoProp ? "primary" : "secondary"}
@@ -220,8 +283,9 @@ export function Griglia() {
           totCong += v;
         }
 
-        const TV_COLOR = { affitto:"#4ade80", conguaglio:"#c084fc", rimborso:"#f87171", altro:"#94a3b8" };
-        const TV_LABEL = { affitto:"Affitto", conguaglio:"Conguaglio", rimborso:"Rimborso", altro:"Altro" };
+        const BADGE_HEX = { blue:"#4ade80", purple:"#c084fc", red:"#f87171", green:"#86efac", orange:"#fb923c", gray:"#94a3b8" };
+        const TV_COLOR = nome => { const t = tipiVers.find(x => x.nome === nome); return BADGE_HEX[t?.colore] || "#94a3b8"; };
+        const TV_LABEL = nome => nome || "affitto";
 
         return (
           <div style={{ overflowX: "auto" }}>
@@ -262,6 +326,9 @@ export function Griglia() {
                             <div style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
                               <div style={{ flex: 1 }}>
                                 <p style={{ fontWeight: 600, margin: 0, fontSize: 13 }}>{r.tipo_descrizione}</p>
+                                {r.nome_file && r.nome_file !== r.tipo_descrizione && (
+                                  <p style={{ fontSize: 10, color: "var(--text2)", margin: "2px 0 0", fontStyle: "italic" }}>{r.nome_file}</p>
+                                )}
                                 {r.fornitore && <p style={{ fontSize: 10, color: "var(--text2)", margin: "2px 0 0" }}>{r.fornitore}</p>}
                                 <p style={{ fontSize: 10, color: "var(--text2)", margin: "2px 0 0", fontStyle: "italic" }}>Quota teorica</p>
                               </div>
@@ -333,14 +400,14 @@ export function Griglia() {
                 {righeMovimenti.length === 0
                   ? <tr><td colSpan={nCols} style={{ padding: 10, color: "var(--text2)", fontSize: 12 }}>Nessun versamento nel periodo.</td></tr>
                   : righeMovimenti.map((r, i) => {
-                    const col = TV_COLOR[r.tipo_versamento] || "#4ade80";
+                    const col = TV_COLOR(r.tipo_versamento);
                     return (
                       <React.Fragment key={"m"+i}>
                         {/* riga incassato reale */}
                         <tr style={{ borderBottom: "none" }}>
                           <td style={{ padding: "7px 10px" }}>
                             <p style={{ fontWeight: 600, margin: 0, fontSize: 13, color: col }}>
-                              {TV_LABEL[r.tipo_versamento] || r.tipo_versamento}
+                              {TV_LABEL(r.tipo_versamento)}
                               {r.mese ? <span style={{ fontWeight: 400, fontSize: 11, color: "var(--text2)", marginLeft: 6 }}>
                                 {ym2L(r.mese)}{r.periodo_a ? ` → ${ym2L(r.periodo_a)}` : ""}
                               </span> : null}
@@ -500,8 +567,9 @@ export function Griglia() {
         const totC = compsVisibili.reduce((s, c) => s + (conguagliCorretti[c.id] || 0), 0);
         const totFattureNelFiltro = righeDocumenti.reduce((s, r) => s + (r.importo || 0), 0);
 
-        const TV_LABEL = { affitto:"Affitto", conguaglio:"Conguaglio", rimborso:"Rimborso", altro:"Altro" };
-        const TV_COLOR = { affitto:"#4ade80", conguaglio:"#c084fc", rimborso:"#f87171", altro:"#94a3b8" };
+        const BADGE_HEX = { blue:"#4ade80", purple:"#c084fc", red:"#f87171", green:"#86efac", orange:"#fb923c", gray:"#94a3b8" };
+        const TV_COLOR = nome => { const t = tipiVers.find(x => x.nome === nome); return BADGE_HEX[t?.colore] || "#94a3b8"; };
+        const TV_LABEL = nome => nome || "affitto";
 
         const righeSintetiche = (() => {
           const gruppi = new Map();
@@ -597,6 +665,11 @@ export function Griglia() {
                             <p style={{ fontWeight: 600, margin: 0, fontSize: 13 }}>
                               {r.tipo_descrizione || r.nome_file}
                             </p>
+                            {r.nome_file && r.nome_file !== r.tipo_descrizione && (
+                              <p style={{ fontSize: 10, color: "var(--text2)", margin: "2px 0 0", fontStyle: "italic" }}>
+                                {r.nome_file}
+                              </p>
+                            )}
                             {r.fornitore && (
                               <p style={{ fontSize: 10, color: "var(--text2)", margin: "2px 0 0" }}>
                                 <i className="ti ti-building-store" style={{ marginRight: 3 }} />
@@ -677,12 +750,12 @@ export function Griglia() {
                       </td>
                     </tr>
                   ) : sintetico ? righeSintetiche.map((r, i) => {
-                    const col = TV_COLOR[r.tipo] || "#4ade80";
+                    const col = TV_COLOR(r.tipo);
                     return (
                       <tr key={"vs" + i} style={{ borderBottom: "1px solid var(--bg3)" }}>
                         <td style={{ padding: "7px 10px" }}>
                           <span style={{ fontWeight: 600, fontSize: 13, color: col }}>
-                            {TV_LABEL[r.tipo] || r.tipo}
+                            {TV_LABEL(r.tipo)}
                           </span>
                         </td>
                         <td style={{ padding: "7px 10px", textAlign: "center", fontSize: 11, color: "var(--text2)" }}>

@@ -51,9 +51,7 @@ DO $$ BEGIN
   CREATE TYPE regola_modalita AS ENUM ('escludi','includi');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-DO $$ BEGIN
-  CREATE TYPE versamento_tipo AS ENUM ('affitto','conguaglio','rimborso','altro');
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+-- versamento_tipo ENUM rimosso (migrazione 014): tipo_versamento è ora TEXT
 
 -- ═══════════════════════════════════════════════════════════════
 -- 3. TABELLE — stato finale (CREATE IF NOT EXISTS)
@@ -192,7 +190,7 @@ CREATE TABLE IF NOT EXISTS movimenti (
   validita_da                 DATE,
   validita_a                  DATE,
   descrizione                 TEXT,
-  tipo_versamento             versamento_tipo NOT NULL DEFAULT 'affitto',
+  tipo_versamento             TEXT            NOT NULL DEFAULT 'affitto',
   data_versamento             DATE,
   mese_riferimento            VARCHAR(7),
   created_at                  TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
@@ -440,7 +438,7 @@ END $$;
 
 -- §4f: movimenti — tipo_versamento, data_versamento, mese_riferimento (migrazione 006/v5)
 ALTER TABLE movimenti
-  ADD COLUMN IF NOT EXISTS tipo_versamento  versamento_tipo NOT NULL DEFAULT 'affitto',
+  ADD COLUMN IF NOT EXISTS tipo_versamento  TEXT            NOT NULL DEFAULT 'affitto',
   ADD COLUMN IF NOT EXISTS data_versamento  DATE,
   ADD COLUMN IF NOT EXISTS mese_riferimento VARCHAR(7);
 
@@ -717,9 +715,25 @@ FROM movimenti m
 JOIN appartamenti a ON a.id = m.appartamento_id
 JOIN componenti   c ON c.id = m.componente_id;
 
+-- ── tipi_versamento ──────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS tipi_versamento (
+  id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  nome       VARCHAR(50) UNIQUE NOT NULL,
+  colore     VARCHAR(20) NOT NULL DEFAULT 'gray',
+  attivo     BOOLEAN     NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- ═══════════════════════════════════════════════════════════════
 -- 10. DATI INIZIALI
 -- ═══════════════════════════════════════════════════════════════
+INSERT INTO tipi_versamento (nome, colore) VALUES
+  ('affitto',    'blue'),
+  ('conguaglio', 'purple'),
+  ('rimborso',   'red'),
+  ('altro',      'gray')
+ON CONFLICT (nome) DO NOTHING;
+
 INSERT INTO tipi_spesa (descrizione, categoria, riparto) VALUES
   ('Acqua',      'Utenza',     'Percentuale'),
   ('Luce',       'Utenza',     'Percentuale'),
