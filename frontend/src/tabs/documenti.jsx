@@ -47,9 +47,10 @@ export function Documenti() {
   const [filtro,   setFilt]  = useState({ stato: "", appartamentoId: "", tipo: "", periodoDA: "", periodoA: "" });
   const [ricerca,  setRicerca] = useState("");
   const [sort,     setSort]  = useState({ col: "periodo_da", dir: "desc" });
-  const [sel,      setSel]   = useState(new Set());
-  const [conf,     setConf]  = useState(null);
-  const [editItem, setEdit]  = useState(null);
+  const [sel,      setSel]      = useState(new Set());
+  const [conf,     setConf]     = useState(null);
+  const [bulkEdit, setBulkEdit] = useState(false);
+  const [editItem, setEdit]     = useState(null);
   const [rename,   setRename] = useState(null); // { id, nomeCorrente }
   const [queue,    setQueue] = useState([]);
   const [buchi,    setBuchi] = useState([]);
@@ -205,6 +206,16 @@ export function Documenti() {
     try {
       await Promise.all([...sel].map(id => { const d = docs.find(x => x.id === id); return d ? documentiApi.update(id, { ...d, stato }) : null; }));
       setSel(new Set()); load();
+    } catch (e) { alert("Errore: " + e.message); }
+  }
+
+  async function bulkEditApply(changes) {
+    try {
+      await Promise.all([...sel].map(id => {
+        const d = docs.find(x => x.id === id);
+        return d ? documentiApi.update(id, { ...d, ...changes }) : null;
+      }));
+      setSel(new Set()); setBulkEdit(false); load();
     } catch (e) { alert("Errore: " + e.message); }
   }
 
@@ -427,6 +438,9 @@ export function Documenti() {
                         background: "rgba(59,130,246,0.12)", padding: "6px 12px",
                         borderRadius: 8, border: "1px solid var(--accent)" }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: "var(--accent)" }}>{sel.size} sel.</span>
+            <Btn variant="primary" size="sm" onClick={() => setBulkEdit(true)}>
+              <i className="ti ti-edit" /> Modifica campi
+            </Btn>
             <Btn variant="success" size="sm" onClick={() => bulkStato("elaborato")}><i className="ti ti-check" /> Elaborato</Btn>
             <Btn variant="secondary" size="sm" onClick={() => bulkStato("da_verificare")}><i className="ti ti-clock" /> Da verificare</Btn>
             <Btn variant="danger" size="sm"
@@ -497,6 +511,43 @@ export function Documenti() {
                     <td><StatoBadge stato={d.stato} /></td>
                     <td>
                       <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+                        {/* Visualizza PDF */}
+                        {d.pdf_disponibile && (
+                          <Btn variant="ghost" size="sm" title="Visualizza PDF"
+                               onClick={async () => {
+                                 try {
+                                   const res = await fetch(documentiApi.pdfUrl(d.id));
+                                   if (res.ok) {
+                                     const url = URL.createObjectURL(await res.blob());
+                                     window.open(url, "_blank");
+                                     setTimeout(() => URL.revokeObjectURL(url), 30_000);
+                                   }
+                                 } catch {}
+                               }}>
+                            <i className="ti ti-file-type-pdf" style={{ color: "#ef4444" }} />
+                          </Btn>
+                        )}
+                        {/* Upload/Sostituisci PDF */}
+                        <label title={d.pdf_disponibile ? "Sostituisci PDF" : "Carica PDF"}
+                               style={{ display: "inline-flex", alignItems: "center", justifyContent: "center",
+                                        padding: "3px 8px", borderRadius: 6, border: "1px solid var(--border)",
+                                        cursor: "pointer", color: "var(--text2)", background: "transparent",
+                                        lineHeight: 1 }}>
+                          <i className="ti ti-upload" style={{ fontSize: 13 }} />
+                          <input type="file" accept=".pdf" style={{ display: "none" }}
+                                 onChange={async e => {
+                                   const file = e.target.files[0];
+                                   if (!file) return;
+                                   e.target.value = "";
+                                   try {
+                                     const r = await documentiApi.uploadPdf(d.id, file);
+                                     if (r?.duplicato_di) {
+                                       alert(`Attenzione: questo PDF è identico a un documento già presente (ID: ${r.duplicato_di.slice(0,8)}…). Il file è stato caricato ma la spesa potrebbe essere duplicata.`);
+                                     }
+                                     load();
+                                   } catch (err) { alert("Errore upload: " + err.message); }
+                                 }} />
+                        </label>
                         {/* Visualizza nel documentale se collegato */}
                         {d.archivio_doc_id && (
                           <Btn variant="ghost" size="sm" title="Visualizza nel documentale"
@@ -554,6 +605,14 @@ export function Documenti() {
         )
       }
 
+      {bulkEdit && (
+        <BulkEditModal
+          count={sel.size}
+          apps={apps} tipi={tipi}
+          onSave={bulkEditApply}
+          onClose={() => setBulkEdit(false)}
+        />
+      )}
       {editItem && (
         <DocEditModal
           doc={editItem.doc} pdfUrl={editItem.pdfUrl || null}
@@ -577,20 +636,160 @@ export function Documenti() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Modal modifica massiva
+// ─────────────────────────────────────────────────────────────────────────────
+function BulkEditModal({ count, apps, tipi, onSave, onClose }) {
+  const INIT = { enabled: false, value: "" };
+  const [f, setF]     = useState({
+    tipo_spesa_id:   { ...INIT },
+    appartamento_id: { ...INIT },
+    periodo_da:      { ...INIT },
+    periodo_a:       { ...INIT },
+    stato:           { ...INIT },
+  });
+  const [saving, setSaving] = useState(false);
+
+  const toggle = key => setF(p => ({ ...p, [key]: { ...p[key], enabled: !p[key].enabled } }));
+  const set    = (key, value) => setF(p => ({ ...p, [key]: { ...p[key], value } }));
+
+  const hasChanges = Object.values(f).some(x => x.enabled && x.value !== "");
+
+  async function handleSave() {
+    const changes = {};
+    for (const [key, { enabled, value }] of Object.entries(f)) {
+      if (enabled) changes[key] = value || null;
+    }
+    if (!Object.keys(changes).length) return;
+    setSaving(true);
+    try { await onSave(changes); }
+    finally { setSaving(false); }
+  }
+
+  const rowStyle = enabled => ({
+    display: "flex", alignItems: "center", gap: 12,
+    padding: "10px 0", borderBottom: "1px solid var(--border)",
+    opacity: enabled ? 1 : 0.5,
+  });
+
+  return (
+    <Modal
+      title={`Modifica massiva — ${count} document${count > 1 ? "i" : "o"} selezionat${count > 1 ? "i" : "o"}`}
+      onClose={onClose}
+      width={500}
+      footer={<>
+        <Btn variant="ghost" onClick={onClose}>Annulla</Btn>
+        <Btn variant="primary" onClick={handleSave} disabled={!hasChanges || saving}>
+          {saving
+            ? <><i className="ti ti-loader-2 spin" /> Salvataggio…</>
+            : <><i className="ti ti-check" /> Applica a {count} document{count > 1 ? "i" : "o"}</>}
+        </Btn>
+      </>}
+    >
+      <p style={{ fontSize: 12, color: "var(--text2)", margin: "0 0 16px" }}>
+        Spunta i campi da sovrascrivere. I campi non selezionati restano invariati.
+      </p>
+
+      {/* Tipo di spesa */}
+      <div style={rowStyle(f.tipo_spesa_id.enabled)}>
+        <input type="checkbox" checked={f.tipo_spesa_id.enabled} onChange={() => toggle("tipo_spesa_id")}
+               style={{ flexShrink: 0, cursor: "pointer" }} />
+        <div style={{ flex: 1 }}>
+          <label style={{ fontSize: 11, display: "block", marginBottom: 4, color: "var(--text2)" }}>Tipo di spesa</label>
+          <select value={f.tipo_spesa_id.value} disabled={!f.tipo_spesa_id.enabled}
+                  onChange={e => set("tipo_spesa_id", e.target.value)} style={{ width: "100%" }}>
+            <option value="">— Seleziona —</option>
+            {tipi.map(t => <option key={t.id} value={t.id}>{t.descrizione}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* Appartamento */}
+      <div style={rowStyle(f.appartamento_id.enabled)}>
+        <input type="checkbox" checked={f.appartamento_id.enabled} onChange={() => toggle("appartamento_id")}
+               style={{ flexShrink: 0, cursor: "pointer" }} />
+        <div style={{ flex: 1 }}>
+          <label style={{ fontSize: 11, display: "block", marginBottom: 4, color: "var(--text2)" }}>Appartamento</label>
+          <select value={f.appartamento_id.value} disabled={!f.appartamento_id.enabled}
+                  onChange={e => set("appartamento_id", e.target.value)} style={{ width: "100%" }}>
+            <option value="">— Seleziona —</option>
+            {apps.map(a => <option key={a.id} value={a.id}>{a.nome}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* Periodo da */}
+      <div style={rowStyle(f.periodo_da.enabled)}>
+        <input type="checkbox" checked={f.periodo_da.enabled} onChange={() => toggle("periodo_da")}
+               style={{ flexShrink: 0, cursor: "pointer" }} />
+        <div style={{ flex: 1 }}>
+          <label style={{ fontSize: 11, display: "block", marginBottom: 4, color: "var(--text2)" }}>Periodo da</label>
+          <input type="month" value={f.periodo_da.value} disabled={!f.periodo_da.enabled}
+                 onChange={e => set("periodo_da", e.target.value)} style={{ width: "100%" }} />
+        </div>
+      </div>
+
+      {/* Periodo a */}
+      <div style={rowStyle(f.periodo_a.enabled)}>
+        <input type="checkbox" checked={f.periodo_a.enabled} onChange={() => toggle("periodo_a")}
+               style={{ flexShrink: 0, cursor: "pointer" }} />
+        <div style={{ flex: 1 }}>
+          <label style={{ fontSize: 11, display: "block", marginBottom: 4, color: "var(--text2)" }}>Periodo a</label>
+          <input type="month" value={f.periodo_a.value} disabled={!f.periodo_a.enabled}
+                 onChange={e => set("periodo_a", e.target.value)} style={{ width: "100%" }} />
+        </div>
+      </div>
+
+      {/* Stato */}
+      <div style={{ ...rowStyle(f.stato.enabled), borderBottom: "none" }}>
+        <input type="checkbox" checked={f.stato.enabled} onChange={() => toggle("stato")}
+               style={{ flexShrink: 0, cursor: "pointer" }} />
+        <div style={{ flex: 1 }}>
+          <label style={{ fontSize: 11, display: "block", marginBottom: 4, color: "var(--text2)" }}>Stato</label>
+          <select value={f.stato.value} disabled={!f.stato.enabled}
+                  onChange={e => set("stato", e.target.value)} style={{ width: "100%" }}>
+            <option value="">— Seleziona —</option>
+            {["elaborato", "da_verificare", "duplicato"].map(s =>
+              <option key={s} value={s}>{s.replace(/_/g, " ")}</option>
+            )}
+          </select>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Modal di validazione documento
 // ─────────────────────────────────────────────────────────────────────────────
-function DocEditModal({ doc: initDoc, pdfUrl, apps, tipi, queueLeft = 0, onSave, onSkip, onClose }) {
-  const [doc,         setDoc]   = useState(initDoc);
-  const [showPdf,     setShowPdf] = useState(!!pdfUrl);
-  const [proprietari, setProp]  = useState([]);
+function DocEditModal({ doc: initDoc, pdfUrl: initPdfUrl, apps, tipi, queueLeft = 0, onSave, onSkip, onClose }) {
+  const [doc,          setDoc]       = useState(initDoc);
+  const [localPdfUrl,  setLocalPdf]  = useState(initPdfUrl);
+  const [showPdf,      setShowPdf]   = useState(!!initPdfUrl);
+  const [uploadingPdf, setUploadPdf] = useState(false);
+  const pdfInputRef                  = useRef();
+  const [proprietari,  setProp]      = useState([]);
 
   useEffect(() => {
     proprietariApi.list().then(setProp).catch(() => {});
   }, []);
 
-  useEffect(() => {
-    setShowPdf(!!pdfUrl);
-  }, [pdfUrl]);
+  async function uploadPdf(file) {
+    if (!doc.id || !file) return;
+    setUploadPdf(true);
+    try {
+      const r = await documentiApi.uploadPdf(doc.id, file);
+      const url = URL.createObjectURL(file);
+      setLocalPdf(url);
+      setShowPdf(true);
+      if (r?.duplicato_di) {
+        alert(`Attenzione: questo PDF è identico a un documento già presente (ID: ${r.duplicato_di.slice(0,8)}…). La spesa potrebbe essere duplicata.`);
+      }
+    } catch (e) {
+      alert("Errore upload PDF: " + e.message);
+    } finally {
+      setUploadPdf(false);
+    }
+  }
 
   useEffect(() => {
     if (!doc.appartamento_id || !doc.periodo_da) return;
@@ -615,7 +814,7 @@ function DocEditModal({ doc: initDoc, pdfUrl, apps, tipi, queueLeft = 0, onSave,
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.78)", display: "flex",
                   alignItems: "center", justifyContent: "center", zIndex: 400, padding: 12 }}>
       <div style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: 12,
-                    width: "100%", maxWidth: showPdf && pdfUrl ? 1120 : 580, height: "92vh",
+                    width: "100%", maxWidth: showPdf && localPdfUrl ? 1120 : 580, height: "92vh",
                     display: "flex", flexDirection: "column", transition: "max-width 0.2s" }}>
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -623,7 +822,7 @@ function DocEditModal({ doc: initDoc, pdfUrl, apps, tipi, queueLeft = 0, onSave,
           <div>
             <p style={{ fontWeight: 700, fontSize: 15, margin: 0 }}>
               {doc.id
-                ? (pdfUrl ? "Valida documento" : "Modifica documento")
+                ? (localPdfUrl ? "Valida documento" : "Modifica documento")
                 : "Nuovo documento"}
               {queueLeft > 1 && (
                 <span style={{ marginLeft: 8, fontSize: 12, color: "var(--yellow)", fontWeight: 400 }}>
@@ -634,14 +833,27 @@ function DocEditModal({ doc: initDoc, pdfUrl, apps, tipi, queueLeft = 0, onSave,
             <p style={{ fontSize: 11, color: "var(--text2)", margin: 0 }}>{doc.nome_file}</p>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            {pdfUrl && (
+            {localPdfUrl && (
               <Btn variant={showPdf ? "primary" : "secondary"} size="sm"
                    onClick={() => setShowPdf(s => !s)}>
                 <i className={`ti ${showPdf ? "ti-eye-off" : "ti-eye"}`} />
                 {showPdf ? "Nascondi PDF" : "Mostra PDF"}
               </Btn>
             )}
-            {!pdfUrl && (
+            {doc.id && (
+              <>
+                <input ref={pdfInputRef} type="file" accept=".pdf" style={{ display: "none" }}
+                       onChange={e => { const f = e.target.files[0]; e.target.value = ""; if (f) uploadPdf(f); }} />
+                <Btn variant="ghost" size="sm" disabled={uploadingPdf}
+                     onClick={() => pdfInputRef.current.click()}
+                     title={localPdfUrl ? "Sostituisci PDF" : "Carica PDF"}>
+                  {uploadingPdf
+                    ? <><i className="ti ti-loader" /> Caricamento…</>
+                    : <><i className="ti ti-upload" /> {localPdfUrl ? "Sostituisci" : "Carica PDF"}</>}
+                </Btn>
+              </>
+            )}
+            {!localPdfUrl && !doc.id && (
               <span style={{ fontSize: 11, color: "var(--text2)", display: "flex", alignItems: "center", gap: 4 }}>
                 <i className="ti ti-file-off" /> PDF non disponibile
               </span>
@@ -651,8 +863,8 @@ function DocEditModal({ doc: initDoc, pdfUrl, apps, tipi, queueLeft = 0, onSave,
         </div>
 
         <div style={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
-          <div style={{ width: showPdf && pdfUrl ? 390 : "100%", flexShrink: 0, overflowY: "auto",
-                        padding: 20, borderRight: showPdf && pdfUrl ? "1px solid var(--border)" : "none" }}>
+          <div style={{ width: showPdf && localPdfUrl ? 390 : "100%", flexShrink: 0, overflowY: "auto",
+                        padding: 20, borderRight: showPdf && localPdfUrl ? "1px solid var(--border)" : "none" }}>
             {mancanti.length > 0 && (
               <div className="alert alert-warn" style={{ marginBottom: 14 }}>
                 <i className="ti ti-alert-triangle" />
@@ -734,19 +946,19 @@ function DocEditModal({ doc: initDoc, pdfUrl, apps, tipi, queueLeft = 0, onSave,
             </div>
           </div>
 
-          {showPdf && pdfUrl && (
+          {showPdf && localPdfUrl && (
             <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, background: "#111" }}>
               <div style={{ padding: "6px 14px", fontSize: 11, color: "var(--text2)",
                             borderBottom: "1px solid var(--border)", display: "flex",
                             alignItems: "center", justifyContent: "space-between" }}>
                 <span><i className="ti ti-file-type-pdf" style={{ color: "#ef4444" }} /> PDF originale</span>
-                <a href={pdfUrl} target="_blank" rel="noreferrer"
+                <a href={localPdfUrl} target="_blank" rel="noreferrer"
                    style={{ color: "var(--accent)", fontSize: 11, textDecoration: "none" }}>
                   <i className="ti ti-external-link" /> Apri
                 </a>
               </div>
               <iframe
-                src={pdfUrl}
+                src={localPdfUrl}
                 style={{ flex: 1, border: "none", width: "100%" }}
                 title="Anteprima PDF"
               />

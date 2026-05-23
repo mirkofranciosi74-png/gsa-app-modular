@@ -1,4 +1,6 @@
-FROM node:18-alpine
+FROM node:20-alpine
+
+RUN apk update && apk upgrade --no-cache
 
 # GraphicsMagick + Ghostscript per OCR su PDF scansionati
 RUN apk add --no-cache graphicsmagick ghostscript postgresql-client

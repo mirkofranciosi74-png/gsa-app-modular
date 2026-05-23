@@ -10,6 +10,7 @@ import { h }                              from "../../shared/middleware.js";
 import { PDF_STORAGE_PATH,
          ARCHIVIO_STORAGE_PATH }          from "../../shared/storage.js";
 import * as logger                        from "../../shared/logger.js";
+import { verificaCoerenza }               from "./verificaCoerenza.js";
 
 export const adminRouter = Router();
 
@@ -179,4 +180,10 @@ adminRouter.delete("/logs", h(async (_, res) => {
   logger.clearLog();
   console.log("[admin] log cancellato");
   res.status(204).end();
+}));
+
+// ── GET /api/admin/verifica-coerenza ─────────────────────────────────────────
+
+adminRouter.get("/verifica-coerenza", h(async (_, res) => {
+  res.json(await verificaCoerenza());
 }));

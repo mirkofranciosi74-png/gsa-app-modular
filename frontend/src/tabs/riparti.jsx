@@ -1,14 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
-import { appartamentiApi, tipiSpesaApi, regoleApi, proprietariApi } from "../api.js";
+import { appartamentiApi, tipiSpesaApi, regoleApi, proprietariApi, tipiVersamentoApi, associazioniApi } from "../api.js";
 import { Btn, Badge, Modal, Confirm, Field, SectionHeader } from "../components/ui.jsx";
 import { mesL, toITdate } from "../utils/formatters.js";
 
-const TIPI_VERS = [
-  { value: "affitto",    label: "Affitto"    },
-  { value: "conguaglio", label: "Conguaglio" },
-  { value: "rimborso",   label: "Rimborso"   },
-  { value: "altro",      label: "Altro"      },
-];
 
 // ── Tooltip contestuale ───────────────────────────────────────────────────────
 function HelpPanel() {
@@ -83,7 +77,9 @@ function HelpPanel() {
 export function Riparti() {
   const [apps,       setApps]      = useState([]);
   const [tipi,       setTipi]      = useState([]);
+  const [tipiVers,   setTipiVers]  = useState([]);
   const [props,      setProps]     = useState([]);
+  const [assocApp,   setAssocApp]  = useState([]);
   const [selApp,     setSel]       = useState("");
   const [regole,     setReg]       = useState([]);
   const [modal,      setModal]     = useState(null);
@@ -91,9 +87,16 @@ export function Riparti() {
   const [filtroTipo, setFiltroTipo] = useState("pagamenti");
 
   useEffect(() => {
-    Promise.all([appartamentiApi.list(), tipiSpesaApi.list(), proprietariApi.list()])
-      .then(([a, t, p]) => { setApps(a); setTipi(t); setProps(p); });
+    Promise.all([appartamentiApi.list(), tipiSpesaApi.list(), proprietariApi.list(), tipiVersamentoApi.list()])
+      .then(([a, t, p, tv]) => { setApps(a); setTipi(t); setProps(p); setTipiVers(tv); });
   }, []);
+
+  useEffect(() => {
+    if (!selApp) { setAssocApp([]); return; }
+    associazioniApi.listByAppartamento(selApp).then(setAssocApp);
+  }, [selApp]);
+
+  const tipiVersAttivi = tipiVers.filter(t => t.attivo);
 
   const loadRegole = useCallback(appId => {
     if (!appId) return;
@@ -101,8 +104,11 @@ export function Riparti() {
   }, []);
   useEffect(() => { loadRegole(selApp); }, [selApp, loadRegole]);
 
-  const app   = apps.find(a => a.id === selApp);
-  const comps = app?.componenti || [];
+  const app      = apps.find(a => a.id === selApp);
+  const comps    = app?.componenti || [];
+  const propsApp = selApp
+    ? props.filter(p => assocApp.some(a => String(a.proprietario_id) === String(p.id)))
+    : props;
 
   const regoleFiltrate = regole.filter(r =>
     filtroTipo === "versamenti" ? r.tipo_versamento != null : r.tipo_versamento == null
@@ -183,7 +189,7 @@ export function Riparti() {
     : [];
 
   function regolaLabel(reg) {
-    if (reg.tipo_versamento) return `${TIPI_VERS.find(t => t.value === reg.tipo_versamento)?.label || reg.tipo_versamento}`;
+    if (reg.tipo_versamento) return `${tipiVers.find(t => t.nome === reg.tipo_versamento)?.nome || reg.tipo_versamento}`;
     if (reg.tipo_spesa_id)   return reg.tipo_spesa_nome || reg.tipo_spesa_id;
     return "Default (tutte le spese)";
   }
@@ -410,7 +416,7 @@ export function Riparti() {
               <Field label="Tipo di entrata">
                 <select value={modal.tipo_versamento || "affitto"}
                   onChange={e => setModal(m => ({ ...m, tipo_versamento: e.target.value }))}>
-                  {TIPI_VERS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  {tipiVersAttivi.map(t => <option key={t.nome} value={t.nome}>{t.nome}</option>)}
                 </select>
               </Field>
 
@@ -462,11 +468,11 @@ export function Riparti() {
                     (vuoto = tutti proporzionale alla proprietà)
                   </span>
                 </p>
-                {props.length === 0 ? (
-                  <p style={{ fontSize: 12, color: "var(--text2)" }}>Nessun proprietario registrato.</p>
+                {propsApp.length === 0 ? (
+                  <p style={{ fontSize: 12, color: "var(--text2)" }}>Nessun proprietario per questo appartamento.</p>
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    {props.map(p => {
+                    {propsApp.map(p => {
                       const checked = modal.inclusi_prop.includes(p.id);
                       const pct     = modal.pct_prop?.[p.id] ?? "";
                       return (
@@ -622,13 +628,13 @@ export function Riparti() {
                     ? (isIncludi ? "Proprietari inclusi" : "Proprietari esclusi")
                     : (isIncludi ? "Inquilini inclusi" : "Inquilini esclusi")}
                 </p>
-                {(modal.target === "proprietari" ? props : comps).length === 0 ? (
+                {(modal.target === "proprietari" ? propsApp : comps).length === 0 ? (
                   <p style={{ fontSize: 12, color: "var(--text2)" }}>
-                    {modal.target === "proprietari" ? "Nessun proprietario registrato." : "Nessun componente per questo appartamento."}
+                    {modal.target === "proprietari" ? "Nessun proprietario per questo appartamento." : "Nessun componente per questo appartamento."}
                   </p>
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    {(modal.target === "proprietari" ? props : comps).map(item => {
+                    {(modal.target === "proprietari" ? propsApp : comps).map(item => {
                       const itemId = item.id;
                       const attivo = selectedIds.includes(itemId);
                       const colore = isIncludi ? "var(--green)" : "var(--red)";

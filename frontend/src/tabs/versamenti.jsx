@@ -1,7 +1,9 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
-import { appartamentiApi, movimentiApi, proprietariApi, associazioniApi } from "../api.js";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { appartamentiApi, movimentiApi, proprietariApi, associazioniApi, tipiVersamentoApi } from "../api.js";
 import { Btn, Badge, Modal, Confirm, Field, SectionHeader } from "../components/ui.jsx";
 import { euro, toISO, toITdate, mesL } from "../utils/formatters.js";
+import ImportazioneModal from "../components/ImportazioneModal.jsx";
+import CreaRegolaModal   from "../components/CreaRegolaModal.jsx";
 
 // ── Costanti ───────────────────────────────────────────────────────────────────
 
@@ -14,14 +16,7 @@ const PERI = [
   { value: "annuale",     label: "Annuale"      },
 ];
 
-const TIPI_VERS = [
-  { value: "affitto",    label: "Affitto"    },
-  { value: "conguaglio", label: "Conguaglio" },
-  { value: "rimborso",   label: "Rimborso"   },
-  { value: "altro",      label: "Altro"      },
-];
-
-const TV_COLOR = { affitto: "blue", conguaglio: "purple", rimborso: "red", altro: "gray" };
+const TV_COLOR_DEFAULT = { affitto: "blue", conguaglio: "purple", rimborso: "red", altro: "gray" };
 
 const isUna = p => (p || "una_tantum") === "una_tantum";
 
@@ -163,6 +158,172 @@ function DupPanel({ tipo, existing, nuovoData, nuovoMese, nuovoImporto, nuovoDes
           <DupRow data={nuovoData} mese={nuovoMese} importo={nuovoImporto} descr={nuovoDescr} />
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Stato badge (normale / sospetto / verificato + duplicato automatico) ───────
+
+const STATO_CFG = {
+  sospetto:   { bg: "rgba(249,115,22,0.18)", color: "#ea580c",        label: "⚠ sospetto" },
+  verificato: { bg: "rgba(34,197,94,0.18)",  color: "var(--green)",   label: "✓ ok"       },
+  auto:       { bg: "rgba(234,179,8,0.18)",  color: "#ca8a04",        label: "⚠ auto"     },
+};
+
+function StatoBadge({ m, allMovs, onSave }) {
+  const [open, setOpen]     = useState(false);
+  const [saving, setSaving] = useState(false);
+  const ref = useRef(null);
+
+  // Chiudi cliccando fuori
+  useEffect(() => {
+    if (!open) return;
+    function handler(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  // Righe correlate: stesso inquilino + stesso importo+segno + stessa data O stesso mese
+  const correlate = useMemo(() => {
+    if (!allMovs) return [];
+    return allMovs.filter(m2 =>
+      m2.id !== m.id &&
+      String(m2.componente_id) === String(m.componente_id) &&
+      parseFloat(m2.importo)   === parseFloat(m.importo)   &&
+      parseInt(m2.segno)        === parseInt(m.segno)       &&
+      (
+        (m2.data_versamento  && m.data_versamento  && toISO(m2.data_versamento)  === toISO(m.data_versamento))  ||
+        (m2.mese_riferimento && m.mese_riferimento && m2.mese_riferimento.slice(0,7) === m.mese_riferimento.slice(0,7))
+      )
+    );
+  }, [m, allMovs]);
+
+  const hasDup = m.duplicato_rilevato || correlate.length > 0;
+  const effKey = m.stato === "sospetto"   ? "sospetto"
+               : m.stato === "verificato" ? "verificato"
+               : hasDup                   ? "auto"
+               : null;
+  const cfg = effKey ? STATO_CFG[effKey] : null;
+
+  async function set(s) {
+    setOpen(false);
+    setSaving(true);
+    try { await onSave(s); } finally { setSaving(false); }
+  }
+
+  return (
+    <div ref={ref} style={{ position: "relative", display: "inline-block" }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        disabled={saving}
+        title={cfg ? "Clicca per dettagli e cambio stato" : "Clicca per impostare stato"}
+        style={{
+          background: cfg ? cfg.bg : "transparent",
+          border: cfg ? `1px solid ${cfg.color}44` : "1px solid var(--border)",
+          borderRadius: 10, padding: "2px 8px", cursor: "pointer",
+          fontSize: 10, fontWeight: 700,
+          color: cfg ? cfg.color : "var(--text2)",
+          whiteSpace: "nowrap",
+        }}>
+        {saving
+          ? <i className="ti ti-loader" style={{ fontSize: 10 }} />
+          : cfg ? cfg.label : "●"}
+      </button>
+
+      {open && (
+        <div style={{
+          position: "absolute", zIndex: 200, right: 0, top: "calc(100% + 4px)",
+          background: "var(--bg2)", border: "1px solid var(--border)",
+          borderRadius: 10, boxShadow: "0 6px 24px rgba(0,0,0,0.22)",
+          minWidth: 260, maxWidth: 340, padding: 8,
+        }}>
+
+          {/* Stato corrente + cambio */}
+          <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1,
+            color: "var(--text2)", marginBottom: 5, paddingLeft: 4 }}>
+            Imposta stato
+          </div>
+          <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
+            {[
+              { k: "normale",    label: "● Normale",   color: "var(--text2)" },
+              { k: "sospetto",   label: "⚠ Sospetto",  color: "#ea580c"      },
+              { k: "verificato", label: "✓ Verificato", color: "var(--green)" },
+            ].map(o => (
+              <button key={o.k} onClick={() => set(o.k)} style={{
+                flex: 1, padding: "5px 4px", textAlign: "center",
+                background: m.stato === o.k ? "var(--bg3)" : "var(--bg)",
+                border: `1px solid ${m.stato === o.k ? "var(--accent)" : "var(--border)"}`,
+                borderRadius: 6, cursor: "pointer",
+                fontSize: 11, color: o.color, fontWeight: m.stato === o.k ? 700 : 400,
+              }}>{o.label}</button>
+            ))}
+          </div>
+
+          {/* Righe correlate */}
+          {correlate.length > 0 && (
+            <>
+              <div style={{
+                borderTop: "1px solid var(--border)", paddingTop: 8, marginTop: 2,
+                fontSize: 10, textTransform: "uppercase", letterSpacing: 1,
+                color: "var(--text2)", marginBottom: 5, paddingLeft: 4,
+              }}>
+                {correlate.length === 1 ? "Correlato con" : `Correlato con ${correlate.length} righe`}
+              </div>
+              {correlate.map(d => {
+                const nD    = importoNetto(d);
+                const dataD = d.data_versamento ? toITdate(d.data_versamento)
+                            : d.validita_da     ? toITdate(d.validita_da) : "—";
+                return (
+                  <div key={d.id} style={{
+                    background: "var(--bg3)", borderRadius: 6, padding: "6px 8px",
+                    marginBottom: 4, fontSize: 11,
+                    borderLeft: "3px solid rgba(234,179,8,0.6)",
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                      <span style={{ color: "var(--text2)" }}>
+                        <i className="ti ti-calendar-event" style={{ marginRight: 3, fontSize: 10 }} />
+                        {dataD}
+                        {d.mese_riferimento && (
+                          <span style={{ marginLeft: 6 }}>
+                            <i className="ti ti-calendar" style={{ marginRight: 2, fontSize: 10 }} />
+                            {mesL(d.mese_riferimento)}
+                          </span>
+                        )}
+                      </span>
+                      <span style={{ fontWeight: 700, color: nD < 0 ? "var(--red)" : "var(--green)" }}>
+                        {nD < 0 ? "" : "+"}{euro(nD)}
+                      </span>
+                    </div>
+                    <div style={{ color: "var(--text2)", fontSize: 10 }}>
+                      {d.appartamento_nome}
+                      {d.componente_nome && <span style={{ marginLeft: 6 }}>· {d.componente_nome}</span>}
+                    </div>
+                    {d.descrizione && (
+                      <div style={{
+                        color: "var(--text2)", fontSize: 10, marginTop: 2,
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      }}>
+                        {d.descrizione}
+                      </div>
+                    )}
+                    {/* Stato dell'altra riga */}
+                    {d.stato && d.stato !== "normale" && (
+                      <div style={{ marginTop: 2 }}>
+                        <span style={{
+                          fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 8,
+                          background: STATO_CFG[d.stato]?.bg, color: STATO_CFG[d.stato]?.color,
+                        }}>
+                          {STATO_CFG[d.stato]?.label}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -439,7 +600,7 @@ function CsvImportModal({ apps, movs, proprietari, onSaved, onClose }) {
         <div className="grid-2">
           <Field label="Tipo versamento">
             <select value={form.tipo_versamento} onChange={e => sf("tipo_versamento", e.target.value)}>
-              {TIPI_VERS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+              {tipiVersAttivi.map(t => <option key={t.nome} value={t.nome}>{t.nome}</option>)}
             </select>
           </Field>
           <Field label="Mese di riferimento"
@@ -502,9 +663,12 @@ export function Versamenti() {
   const [movs,          setMovs]          = useState([]);
   const [apps,          setApps]          = useState([]);
   const [proprietari,   setProprietari]   = useState([]);
+  const [tipiVers,      setTipiVers]      = useState([]);
   const [modal,         setModal]         = useState(null);
   const [conf,          setConf]          = useState(null);
   const [csvModal,      setCsvModal]      = useState(false);
+  const [smartModal,    setSmartModal]    = useState(false);
+  const [regolaModal,   setRegolaModal]   = useState(null);  // movimento su cui creare regola
   const [forzaSalvaModal, setForzaSalvaModal] = useState(false);
 
   // Filtri
@@ -514,16 +678,21 @@ export function Versamenti() {
   const [filtroTipoVers,     setFiltroTipoVers]     = useState("");
   const [filtroTesto,        setFiltroTesto]        = useState("");
   const [filtroSoloFuori,    setFiltroSoloFuori]    = useState(false);
+  const [filtroStato,        setFiltroStato]        = useState("");
 
   // Ordinamento
   const [sortCol, setSortCol] = useState("validita_da");
   const [sortDir, setSortDir] = useState("desc");
 
   const load = useCallback(() =>
-    Promise.all([movimentiApi.list(), appartamentiApi.list(), proprietariApi.list()])
-      .then(([m, a, p]) => { setMovs(m); setApps(a); setProprietari(p); }),
+    Promise.all([movimentiApi.list(), appartamentiApi.list(), proprietariApi.list(), tipiVersamentoApi.list()])
+      .then(([m, a, p, tv]) => { setMovs(m); setApps(a); setProprietari(p); setTipiVers(tv); }),
   []);
   useEffect(() => { load(); }, [load]);
+
+  const tipiVersAttivi = tipiVers.filter(t => t.attivo);
+  const tvColor = tv => TV_COLOR_DEFAULT[tv] ?? (tipiVers.find(t => t.nome === tv)?.colore || "gray");
+  const tvLabel = tv => tipiVers.find(t => t.nome === tv)?.nome ?? tv ?? "affitto";
 
   function toggleSort(col) {
     if (sortCol === col) setSortDir(d => d === "asc" ? "desc" : "asc");
@@ -547,6 +716,9 @@ export function Versamenti() {
     if (filtroPeriodic)     list = list.filter(m => m.periodicita     === filtroPeriodic);
     if (filtroTipoVers)     list = list.filter(m => (m.tipo_versamento || "affitto") === filtroTipoVers);
     if (filtroSoloFuori)    list = list.filter(m => m.fuori_validita);
+    if (filtroStato === "sospetti")   list = list.filter(m => m.stato === "sospetto" || m.duplicato_rilevato);
+    if (filtroStato === "verificati") list = list.filter(m => m.stato === "verificato");
+    if (filtroStato === "normali")    list = list.filter(m => m.stato === "normale" && !m.duplicato_rilevato);
     if (filtroTesto.trim()) {
       const q = filtroTesto.toLowerCase().trim();
       list = list.filter(m =>
@@ -570,7 +742,7 @@ export function Versamenti() {
       return sortDir === "asc" ? va - vb : vb - va;
     });
     return list;
-  }, [movs, filtroAppartamento, filtroInquilino, filtroPeriodic, filtroTipoVers, filtroTesto, filtroSoloFuori, sortCol, sortDir]);
+  }, [movs, filtroAppartamento, filtroInquilino, filtroPeriodic, filtroTipoVers, filtroTesto, filtroSoloFuori, filtroStato, sortCol, sortDir]);
 
   const stats = useMemo(() => {
     const totPos = movsFiltrati.filter(m => importoNetto(m) >= 0).reduce((s, m) => s + importoNetto(m), 0);
@@ -578,10 +750,10 @@ export function Versamenti() {
     return { totPos, totNeg, netto: totPos + totNeg };
   }, [movsFiltrati]);
 
-  const haFiltri = filtroAppartamento || filtroInquilino || filtroPeriodic || filtroTipoVers || filtroTesto || filtroSoloFuori;
+  const haFiltri = filtroAppartamento || filtroInquilino || filtroPeriodic || filtroTipoVers || filtroTesto || filtroSoloFuori || filtroStato;
   function resetFiltri() {
     setFiltroAppartamento(""); setFiltroInquilino(""); setFiltroPeriodic("");
-    setFiltroTipoVers(""); setFiltroTesto(""); setFiltroSoloFuori(false);
+    setFiltroTipoVers(""); setFiltroTesto(""); setFiltroSoloFuori(false); setFiltroStato("");
   }
 
   async function save(f) {
@@ -685,7 +857,7 @@ export function Versamenti() {
   }
 
   const periLabel     = p => PERI.find(x => x.value === p)?.label || p;
-  const tipoVersLabel = t => TIPI_VERS.find(x => x.value === t)?.label || (t || "affitto");
+  const tipoVersLabel = tvLabel;
 
   // ── RENDER ─────────────────────────────────────────────────────────────────
   return (
@@ -694,6 +866,9 @@ export function Versamenti() {
         title="Entrate"
         action={
           <div style={{ display: "flex", gap: 8 }}>
+            <Btn variant="secondary" onClick={() => setSmartModal(true)}>
+              <i className="ti ti-sparkles" /> Importa estratto
+            </Btn>
             <Btn variant="secondary" onClick={() => setCsvModal(true)}>
               <i className="ti ti-upload" /> Importa CSV
             </Btn>
@@ -753,7 +928,17 @@ export function Versamenti() {
             <label style={{ fontSize: 11, display: "block", marginBottom: 3 }}>Tipo vers.</label>
             <select value={filtroTipoVers} onChange={e => setFiltroTipoVers(e.target.value)} style={{ width: "100%" }}>
               <option value="">Tutti</option>
-              {TIPI_VERS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+              {tipiVersAttivi.map(t => <option key={t.nome} value={t.nome}>{t.nome}</option>)}
+            </select>
+          </div>
+
+          <div style={{ flex: "0 1 130px" }}>
+            <label style={{ fontSize: 11, display: "block", marginBottom: 3 }}>Stato</label>
+            <select value={filtroStato} onChange={e => setFiltroStato(e.target.value)} style={{ width: "100%" }}>
+              <option value="">Tutti</option>
+              <option value="sospetti">⚠ Sospetti / duplicati</option>
+              <option value="verificati">✓ Verificati</option>
+              <option value="normali">● Normali</option>
             </select>
           </div>
 
@@ -821,6 +1006,7 @@ export function Versamenti() {
                 <th style={{ color: "var(--text2)", whiteSpace: "nowrap" }}>Mese rif.</th>
                 <th style={{ color: "var(--text2)" }}>Note</th>
                 <ThSort col="importo_netto" label="Importo" sortCol={sortCol} sortDir={sortDir} onSort={toggleSort} align="right" />
+                <th style={{ textAlign: "center", width: 90, color: "var(--text2)" }}>Stato</th>
                 <th style={{ textAlign: "right", width: 80 }}>Azioni</th>
               </tr>
             </thead>
@@ -834,7 +1020,15 @@ export function Versamenti() {
                 const tv     = m.tipo_versamento || "affitto";
 
                 return (
-                  <tr key={m.id} style={{ background: m.fuori_validita ? "rgba(239,68,68,0.06)" : "" }}>
+                  <tr key={m.id} style={{
+                    background: m.stato === "sospetto" || m.duplicato_rilevato
+                      ? "rgba(249,115,22,0.05)"
+                      : m.fuori_validita
+                        ? "rgba(239,68,68,0.06)"
+                        : m.stato === "verificato"
+                          ? "rgba(34,197,94,0.03)"
+                          : "",
+                  }}>
                     <td>
                       <span style={{
                         display: "inline-block", fontSize: 11, fontWeight: 500,
@@ -853,7 +1047,7 @@ export function Versamenti() {
                     </td>
 
                     <td>
-                      <Badge label={tipoVersLabel(tv)} color={TV_COLOR[tv] || "gray"} />
+                      <Badge label={tipoVersLabel(tv)} color={tvColor(tv)} />
                     </td>
 
                     <td style={{ fontSize: 12, color: m.fuori_validita ? "var(--red)" : "var(--text2)" }}>
@@ -892,8 +1086,26 @@ export function Versamenti() {
                       </span>
                     </td>
 
+                    <td style={{ textAlign: "center" }}>
+                      <StatoBadge
+                        m={m}
+                        allMovs={movs}
+                        onSave={async (s) => {
+                          await movimentiApi.updateStato(m.id, s);
+                          load();
+                        }}
+                      />
+                    </td>
+
                     <td>
                       <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+                        {m.descrizione && (
+                          <Btn variant="ghost" size="sm"
+                            onClick={() => setRegolaModal(m)}
+                            title="Crea/aggiorna regola di associazione da questo versamento">
+                            <i className="ti ti-list-check" />
+                          </Btn>
+                        )}
                         <Btn variant="secondary" size="sm" onClick={() => apriModifica(m)}>
                           <i className="ti ti-edit" />
                         </Btn>
@@ -940,14 +1152,15 @@ export function Versamenti() {
       {modal && (() => {
         const app        = apps.find(a => String(a.id) === String(modal.appartamento_id));
         const oggi       = new Date().toISOString().slice(0, 10);
+        const dataFiltro = modal.validita_da || oggi;
         const tuttiComps = app?.componenti || [];
         const comps      = modal._soloAttivi
           ? tuttiComps.filter(c => {
               if (c.attivo === false) return false;
               const vDa = toISO(c.validita_da) || null;
               const vA  = toISO(c.validita_a)  || null;
-              if (vDa && vDa > oggi) return false;
-              if (vA  && vA  < oggi) return false;
+              if (vDa && vDa > dataFiltro) return false;
+              if (vA  && vA  < dataFiltro) return false;
               return true;
             })
           : tuttiComps;
@@ -1015,7 +1228,7 @@ export function Versamenti() {
                 <Field label="Tipo versamento">
                   <select value={modal.tipo_versamento || "affitto"}
                     onChange={e => setModal(m => ({ ...m, tipo_versamento: e.target.value }))}>
-                    {TIPI_VERS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                    {tipiVersAttivi.map(t => <option key={t.nome} value={t.nome}>{t.nome}</option>)}
                   </select>
                 </Field>
               </div>
@@ -1038,7 +1251,7 @@ export function Versamenti() {
                     <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text2)", cursor: "pointer" }}>
                       <input type="checkbox" checked={modal._soloAttivi}
                         onChange={e => setModal(m => ({ ...m, _soloAttivi: e.target.checked, componente_id: "" }))} />
-                      Solo attivi oggi
+                      Solo attivi {modal.validita_da ? `al ${toITdate(modal.validita_da)}` : "oggi"}
                     </label>
                   </div>
                   <select value={modal.componente_id}
@@ -1097,7 +1310,7 @@ export function Versamenti() {
                     onChange={e => setModal(m => ({
                       ...m,
                       validita_da:      e.target.value,
-                      mese_riferimento: m.mese_riferimento || e.target.value.slice(0, 7),
+                      mese_riferimento: e.target.value.slice(0, 7) || m.mese_riferimento,
                     }))}
                     style={{ borderColor: errDa || !modal.validita_da ? "var(--yellow)" : "" }} />
                 </Field>
@@ -1122,7 +1335,7 @@ export function Versamenti() {
                       onChange={e => setModal(m => ({
                         ...m,
                         data_versamento:  e.target.value,
-                        mese_riferimento: e.target.value.slice(0, 7),
+                        mese_riferimento: e.target.value.slice(0, 7) || m.mese_riferimento,
                       }))} />
                   </Field>
                   <Field label="Mese di riferimento" hint="Mese contabile (AAAA-MM)">
@@ -1166,6 +1379,25 @@ export function Versamenti() {
           proprietari={proprietari}
           onSaved={load}
           onClose={() => setCsvModal(false)}
+        />
+      )}
+
+      {/* ── SMART IMPORT MODAL ── */}
+      {smartModal && (
+        <ImportazioneModal
+          appartamenti={apps}
+          onSaved={load}
+          onClose={() => setSmartModal(false)}
+        />
+      )}
+
+      {/* ── CREA REGOLA MODAL ── */}
+      {regolaModal && (
+        <CreaRegolaModal
+          movimento={regolaModal}
+          appartamenti={apps}
+          onSaved={() => {}}
+          onClose={() => setRegolaModal(null)}
         />
       )}
 

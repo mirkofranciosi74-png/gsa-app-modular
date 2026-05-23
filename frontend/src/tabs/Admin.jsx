@@ -1,6 +1,11 @@
 import { useRef, useState, useEffect, useCallback } from "react";
 import { adminApi } from "../api.js";
 import { Btn } from "../components/ui.jsx";
+import { Tipologie } from "./tipologie.jsx";
+
+const fmtEuro  = v => v != null ? Number(v).toLocaleString("it-IT", { style: "currency", currency: "EUR" }) : "—";
+const fmtData  = d => d ? new Date(d).toLocaleDateString("it-IT") : "—";
+const fmtMese  = s => s || "—";
 
 function formatBytes(b) {
   if (b < 1024) return `${b} B`;
@@ -301,19 +306,322 @@ function LogSection() {
   );
 }
 
+// ── helpers render ─────────────────────────────────────────────────────────────
+function Badge({ n, color = "red" }) {
+  if (!n) return null;
+  const bg = color === "green" ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)";
+  const fg = color === "green" ? "var(--green)" : "var(--red)";
+  return (
+    <span style={{ background: bg, color: fg, borderRadius: 20, padding: "2px 8px",
+                   fontSize: 11, fontWeight: 700, marginLeft: 6 }}>
+      {n}
+    </span>
+  );
+}
+
+function Sezione({ titolo, icon, items, children, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen || items?.length > 0);
+  return (
+    <div style={{ border: `1px solid ${items?.length ? "var(--red)" : "var(--border)"}`,
+                  borderRadius: 8, overflow: "hidden" }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{ width: "100%", display: "flex", alignItems: "center", gap: 8,
+                 padding: "10px 14px", background: "var(--bg2)", border: "none",
+                 cursor: "pointer", color: "var(--text1)", fontSize: 13, fontWeight: 600 }}
+      >
+        <i className={`ti ${icon}`} style={{ color: items?.length ? "var(--red)" : "var(--green)" }} />
+        <span style={{ flex: 1, textAlign: "left" }}>{titolo}</span>
+        <Badge n={items?.length} color={items?.length ? "red" : "green"} />
+        {!items?.length && (
+          <span style={{ fontSize: 11, color: "var(--green)", fontWeight: 400 }}>OK</span>
+        )}
+        <i className={`ti ti-chevron-${open ? "up" : "down"}`} style={{ color: "var(--text2)", fontSize: 12 }} />
+      </button>
+      {open && items?.length > 0 && (
+        <div style={{ padding: "12px 14px", background: "var(--bg3)" }}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TabellaAnomalieSimple({ rows, cols }) {
+  const th = { padding: "4px 8px", textAlign: "left", fontSize: 11,
+               color: "var(--text2)", borderBottom: "1px solid var(--border)", fontWeight: 600 };
+  const td = { padding: "5px 8px", fontSize: 12, borderBottom: "1px solid var(--border)" };
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead>
+          <tr>{cols.map(c => <th key={c.k} style={{ ...th, textAlign: c.right ? "right" : "left" }}>{c.label}</th>)}</tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i}>
+              {cols.map(c => (
+                <td key={c.k} style={{ ...td, textAlign: c.right ? "right" : "left" }}>
+                  {c.fmt ? c.fmt(r[c.k], r) : (r[c.k] ?? "—")}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ── Sezione verifica coerenza ──────────────────────────────────────────────────
+function VerificaCoerenzaSection() {
+  const [report,  setReport]  = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [err,     setErr]     = useState(null);
+  const reportRef = useRef();
+
+  async function avvia() {
+    setLoading(true); setErr(null); setReport(null);
+    try { setReport(await adminApi.verificaCoerenza()); }
+    catch (e) { setErr(e.message); }
+    finally { setLoading(false); }
+  }
+
+  function stampa() {
+    const w = window.open("", "_blank");
+    w.document.write(`
+      <html><head><title>Verifica coerenza GSA</title>
+      <style>
+        body { font-family: sans-serif; font-size: 12px; color: #111; padding: 20px; }
+        h1 { font-size: 18px; margin-bottom: 4px; }
+        h2 { font-size: 14px; margin: 16px 0 6px; color: #333; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+        th { background: #f3f4f6; text-align: left; padding: 4px 8px; font-size: 11px; border: 1px solid #ddd; }
+        td { padding: 4px 8px; border: 1px solid #ddd; font-size: 11px; }
+        .ok { color: #16a34a; }
+        .err { color: #dc2626; }
+        .meta { color: #666; font-size: 11px; margin-bottom: 20px; }
+      </style></head><body>
+      ${reportRef.current?.innerHTML || ""}
+      </body></html>
+    `);
+    w.document.close();
+    w.print();
+  }
+
+  return (
+    <div style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: 12, padding: 24 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+        <div style={{ width: 44, height: 44, borderRadius: 10, background: "#7c3aed",
+                      display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <i className="ti ti-shield-check" style={{ fontSize: 22, color: "#fff" }} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <p style={{ fontWeight: 700, fontSize: 15, margin: 0 }}>Verifica coerenza dati</p>
+          <p style={{ color: "var(--text2)", fontSize: 13, margin: 0 }}>
+            Controlla proprietari, percentuali, date di validità e riparti.
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          {report && (
+            <Btn variant="secondary" size="sm" onClick={stampa}>
+              <i className="ti ti-printer" /> Stampa
+            </Btn>
+          )}
+          <Btn variant="primary" onClick={avvia} disabled={loading}>
+            {loading
+              ? <><i className="ti ti-loader-2 spin" /> Analisi…</>
+              : <><i className="ti ti-search" /> Avvia verifica</>}
+          </Btn>
+        </div>
+      </div>
+
+      {err && (
+        <div className="alert alert-danger">
+          <i className="ti ti-alert-circle" /> {err}
+        </div>
+      )}
+
+      {report && (
+        <div ref={reportRef}>
+          {/* Riepilogo */}
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16,
+                        padding: "10px 16px", borderRadius: 8,
+                        background: report.totale_anomalie === 0 ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)",
+                        border: `1px solid ${report.totale_anomalie === 0 ? "var(--green)" : "var(--red)"}` }}>
+            <i className={`ti ti-${report.totale_anomalie === 0 ? "circle-check" : "alert-triangle"}`}
+               style={{ fontSize: 22, color: report.totale_anomalie === 0 ? "var(--green)" : "var(--red)" }} />
+            <div>
+              <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>
+                {report.totale_anomalie === 0
+                  ? "Nessuna anomalia rilevata"
+                  : `${report.totale_anomalie} anomali${report.totale_anomalie === 1 ? "a" : "e"} rilevat${report.totale_anomalie === 1 ? "a" : "e"}`}
+              </p>
+              <p style={{ margin: 0, fontSize: 11, color: "var(--text2)" }}>
+                Generato il {new Date(report.generato_il).toLocaleString("it-IT")}
+              </p>
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gap: 8 }}>
+            <Sezione titolo="Appartamenti senza proprietario" icon="ti-building-off"
+                     items={report.appartamenti_senza_proprietario}>
+              <TabellaAnomalieSimple
+                rows={report.appartamenti_senza_proprietario}
+                cols={[{ k: "nome", label: "Appartamento" }]}
+              />
+            </Sezione>
+
+            <Sezione titolo="Percentuale proprietà ≠ 100% (periodo corrente)" icon="ti-percentage"
+                     items={report.percentuali_scorrette}>
+              <TabellaAnomalieSimple
+                rows={report.percentuali_scorrette}
+                cols={[
+                  { k: "appartamento_nome", label: "Appartamento" },
+                  { k: "totale_pct", label: "Totale %", right: true,
+                    fmt: v => <span style={{ color: "var(--red)", fontWeight: 700 }}>{v}%</span> },
+                  { k: "dettaglio", label: "Dettaglio",
+                    fmt: v => (v || []).map(d =>
+                      `${d.proprietario}: ${d.pct}%`
+                    ).join(" · ") },
+                ]}
+              />
+            </Sezione>
+
+            <Sezione titolo="Periodi di proprietà sovrapposti" icon="ti-layers-intersect"
+                     items={report.periodi_sovrapposti}>
+              <TabellaAnomalieSimple
+                rows={report.periodi_sovrapposti}
+                cols={[
+                  { k: "appartamento_nome", label: "Appartamento" },
+                  { k: "proprietario_nome", label: "Proprietario" },
+                  { k: "da1", label: "Periodo 1 dal", fmt: fmtData },
+                  { k: "a1",  label: "al",            fmt: v => v ? fmtData(v) : "aperto" },
+                  { k: "da2", label: "Periodo 2 dal", fmt: fmtData },
+                  { k: "a2",  label: "al",            fmt: v => v ? fmtData(v) : "aperto" },
+                ]}
+              />
+            </Sezione>
+
+            <Sezione titolo="Entrate con proprietario inattivo" icon="ti-arrow-down-circle"
+                     items={report.movimenti_proprietario_inattivo}>
+              <TabellaAnomalieSimple
+                rows={report.movimenti_proprietario_inattivo}
+                cols={[
+                  { k: "appartamento_nome",  label: "Appartamento" },
+                  { k: "proprietario_nome",  label: "Proprietario" },
+                  { k: "data_riferimento",   label: "Data",     fmt: fmtData },
+                  { k: "mese_riferimento",   label: "Periodo",  fmt: fmtMese },
+                  { k: "importo",            label: "Importo",  right: true, fmt: fmtEuro },
+                ]}
+              />
+            </Sezione>
+
+            <Sezione titolo="Spese con proprietario inattivo" icon="ti-file-invoice"
+                     items={report.documenti_proprietario_inattivo}>
+              <TabellaAnomalieSimple
+                rows={report.documenti_proprietario_inattivo}
+                cols={[
+                  { k: "appartamento_nome", label: "Appartamento" },
+                  { k: "proprietario_nome", label: "Proprietario" },
+                  { k: "data_riferimento",  label: "Data",        fmt: fmtData },
+                  { k: "descrizione",       label: "Descrizione" },
+                  { k: "importo",           label: "Importo", right: true, fmt: fmtEuro },
+                ]}
+              />
+            </Sezione>
+
+            <Sezione titolo="Entrate fuori dal periodo di validità del proprietario" icon="ti-calendar-off"
+                     items={report.movimenti_fuori_validita}>
+              <TabellaAnomalieSimple
+                rows={report.movimenti_fuori_validita}
+                cols={[
+                  { k: "appartamento_nome", label: "Appartamento" },
+                  { k: "proprietario_nome", label: "Proprietario" },
+                  { k: "data_riferimento",  label: "Data",    fmt: fmtData },
+                  { k: "mese_riferimento",  label: "Periodo", fmt: fmtMese },
+                  { k: "importo",           label: "Importo", right: true, fmt: fmtEuro },
+                ]}
+              />
+            </Sezione>
+
+            <Sezione titolo="Spese fuori dal periodo di validità del proprietario" icon="ti-calendar-off"
+                     items={report.documenti_fuori_validita}>
+              <TabellaAnomalieSimple
+                rows={report.documenti_fuori_validita}
+                cols={[
+                  { k: "appartamento_nome", label: "Appartamento" },
+                  { k: "proprietario_nome", label: "Proprietario" },
+                  { k: "data_riferimento",  label: "Data",        fmt: fmtData },
+                  { k: "descrizione",       label: "Descrizione" },
+                  { k: "importo",           label: "Importo", right: true, fmt: fmtEuro },
+                ]}
+              />
+            </Sezione>
+
+            <Sezione titolo="Regole di riparto con proprietari non validi" icon="ti-git-branch"
+                     items={report.regole_riparto_anomale}>
+              <TabellaAnomalieSimple
+                rows={report.regole_riparto_anomale}
+                cols={[
+                  { k: "appartamento_nome",  label: "Appartamento" },
+                  { k: "proprietario_nome",  label: "Proprietario" },
+                  { k: "proprietario_attivo", label: "Attivo",
+                    fmt: v => v ? "Sì" : <span style={{ color: "var(--red)" }}>No</span> },
+                  { k: "ha_associazione", label: "Assoc. presente",
+                    fmt: v => v ? "Sì" : <span style={{ color: "var(--red)" }}>No</span> },
+                  { k: "tipo_riferimento", label: "Tipo" },
+                ]}
+              />
+            </Sezione>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Componente principale ──────────────────────────────────────────────────────
 export function Admin() {
   return (
-    <div style={{ maxWidth: 720, margin: "0 auto", display: "flex", flexDirection: "column", gap: 24 }}>
+    <div style={{ maxWidth: 720, margin: "0 auto", display: "flex", flexDirection: "column", gap: 32 }}>
       <div>
         <h2 style={{ fontSize: 20, fontWeight: 700, margin: "0 0 4px" }}>Amministrazione</h2>
         <p style={{ color: "var(--text2)", fontSize: 13, margin: 0 }}>
-          Backup, ripristino e gestione del sistema.
+          Backup, ripristino, gestione del sistema e tipologie documento.
         </p>
       </div>
-      <BackupSection />
-      <RestoreSection />
-      <LogSection />
+
+      {/* ── Verifica coerenza ───────────────────────────────────────────────── */}
+      <div>
+        <h3 style={{ fontSize: 15, fontWeight: 700, margin: "0 0 16px", color: "var(--text)" }}>
+          <i className="ti ti-shield-check" style={{ marginRight: 8, color: "#7c3aed" }} />
+          Verifica coerenza
+        </h3>
+        <VerificaCoerenzaSection />
+      </div>
+
+      {/* ── Tipi Documento ──────────────────────────────────────────────────── */}
+      <div>
+        <h3 style={{ fontSize: 15, fontWeight: 700, margin: "0 0 16px", color: "var(--text)" }}>
+          <i className="ti ti-tag" style={{ marginRight: 8, color: "var(--accent)" }} />
+          Tipi Documento
+        </h3>
+        <Tipologie />
+      </div>
+
+      {/* ── Sistema ─────────────────────────────────────────────────────────── */}
+      <div>
+        <h3 style={{ fontSize: 15, fontWeight: 700, margin: "0 0 16px", color: "var(--text)" }}>
+          <i className="ti ti-settings" style={{ marginRight: 8, color: "var(--accent)" }} />
+          Sistema
+        </h3>
+        <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+          <BackupSection />
+          <RestoreSection />
+          <LogSection />
+        </div>
+      </div>
     </div>
   );
 }

@@ -40,6 +40,17 @@ grigliaRouter.get("/export-zip", h(async (q, r) => {
   await streamGrigliaZip(dati, documentiDB, periodoDA, periodoA, r);
 }));
 
+grigliaRouter.get("/export-excel", h(async (q, r) => {
+  const { appartamentoId, periodoDA, periodoA, modo = "tutti" } = q.query;
+  if (!appartamentoId) return r.status(400).json({ error: "appartamentoId obbligatorio" });
+  const [dati, datiProp] = await Promise.all([
+    griglia.righeGriglia(appartamentoId, periodoDA || null, periodoA || null),
+    griglia.grigliaPropretari(appartamentoId, periodoDA || null, periodoA || null),
+  ]);
+  const { streamExcelOnly } = await import("./grigliaExport.js");
+  await streamExcelOnly(dati, datiProp, periodoDA, periodoA, modo, r);
+}));
+
 grigliaRouter.get("/versatoperiodo", h(async (q, r) => {
   const { appartamentoId, componenteId, periodoDA, periodoA } = q.query;
   const versato = await griglia.versatoNelPeriodo(appartamentoId, componenteId, periodoDA, periodoA);

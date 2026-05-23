@@ -1,8 +1,11 @@
 import pdfParse       from "pdf-parse";
 import Tesseract       from "tesseract.js";
 import Fuse            from "fuse.js";
-import { fromBuffer }  from "pdf2pic";
+import { fromPath }    from "pdf2pic";
 import crypto          from "crypto";
+import fs              from "fs";
+import os              from "os";
+import path            from "path";
 
 const MIN_CHARS = Number(process.env.OCR_MIN_CHARS) || 120;
 const TESS_LANG = process.env.TESSERACT_LANG        || "ita";
@@ -19,7 +22,8 @@ export async function extract(pdfBuffer, filename, { appartamenti = [], tipi = [
 
   if (testo.replace(/\s/g, "").length < MIN_CHARS) {
     metodo = "tesseract-ocr";
-    testo  = await _ocr(pdfBuffer);
+    try { testo = await _ocr(pdfBuffer); }
+    catch (e) { console.error("[extractor] OCR failed:", e.message); testo = ""; }
   }
 
   console.log(`[extractor] ${filename} | ${metodo} | ${testo.length} chars`);
@@ -64,15 +68,21 @@ export async function extract(pdfBuffer, filename, { appartamenti = [], tipi = [
 
 // ─── OCR ──────────────────────────────────────────────────────────────────────
 async function _ocr(buf) {
-  const conv  = fromBuffer(buf, { density:300, format:"png", width:2480, height:3508 });
-  const pages = await conv.bulk(3, { responseType:"buffer" });
-  const texts = [];
-  for (const p of pages) {
-    if (!p?.buffer) continue;
-    const { data } = await Tesseract.recognize(p.buffer, TESS_LANG, { logger:()=>{} });
-    texts.push(data.text || "");
+  const tmpFile = path.join(os.tmpdir(), `gsa_ocr_${Date.now()}.pdf`);
+  try {
+    fs.writeFileSync(tmpFile, buf);
+    const conv  = fromPath(tmpFile, { density:150, format:"png", width:2480, height:3508 });
+    const pages = await conv.bulk([1, 2, 3], { responseType:"buffer" });
+    const texts = [];
+    for (const p of pages) {
+      if (!p?.buffer || p.buffer.length < 100) continue;
+      const { data } = await Tesseract.recognize(p.buffer, TESS_LANG, { logger:()=>{} });
+      texts.push(data.text || "");
+    }
+    return texts.join("\n\n");
+  } finally {
+    try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
   }
-  return texts.join("\n\n");
 }
 
 // ─── PARSING ──────────────────────────────────────────────────────────────────

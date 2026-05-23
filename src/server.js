@@ -1,5 +1,12 @@
 import "dotenv/config";
 
+process.on("uncaughtException", (err) => {
+  console.error("❌ uncaughtException:", err?.message ?? err, err?.stack ?? "");
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("❌ unhandledRejection:", reason?.message ?? reason);
+});
+
 const REQUIRED = ["DB_HOST","DB_PORT","DB_NAME","DB_USER","DB_PASSWORD"];
 const missing  = REQUIRED.filter(k => !process.env[k]);
 if (missing.length) {
@@ -13,13 +20,15 @@ import { errorHandler } from "./shared/middleware.js";
 import { log } from "./shared/logger.js";
 
 import { appartamentiRouter, proprietariRouter,
-         associazioniRouter, tipiSpesaRouter }  from "./modules/anagrafica/routes.js";
+         associazioniRouter, tipiSpesaRouter,
+         tipiVersamentoRouter }                 from "./modules/anagrafica/routes.js";
 import { documentiRouter }                       from "./modules/documenti/routes.js";
 import { movimentiRouter }                       from "./modules/movimenti/routes.js";
 import { dashboardRouter, grigliaRouter,
          regoleRouter, reportRouter }            from "./modules/contabilita/routes.js";
 import { archivioTipiRouter, archivioRouter }    from "./modules/archivio/routes.js";
 import { adminRouter }                           from "./modules/admin/routes.js";
+import { importazioneRouter }                    from "./modules/importazione/routes.js";
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
@@ -38,7 +47,8 @@ app.get("/api/health", (_, r) => r.json({ ok: true, ts: new Date().toISOString()
 app.use("/api/appartamenti",  appartamentiRouter);
 app.use("/api/proprietari",   proprietariRouter);
 app.use("/api/associazioni",  associazioniRouter);
-app.use("/api/tipi-spesa",    tipiSpesaRouter);
+app.use("/api/tipi-spesa",       tipiSpesaRouter);
+app.use("/api/tipi-versamento", tipiVersamentoRouter);
 app.use("/api/documenti",     documentiRouter);
 app.use("/api/movimenti",     movimentiRouter);
 app.use("/api/dashboard",     dashboardRouter);
@@ -48,6 +58,7 @@ app.use("/api/report",        reportRouter);
 app.use("/api/archivio-tipi", archivioTipiRouter);
 app.use("/api/archivio",      archivioRouter);
 app.use("/api/admin",         adminRouter);
+app.use("/api/importazione",  importazioneRouter);
 
 app.use(errorHandler);
 

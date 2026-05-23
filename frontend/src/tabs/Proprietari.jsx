@@ -4,6 +4,7 @@ import { Btn, Modal, Field, SectionHeader, Confirm } from "../components/ui.jsx"
 import { DocListEntita } from "./Documentale.jsx";
 
 function fmt(d) { return d ? d.slice(0, 10) : "—"; }
+function fmtE(d) { return d ? new Date(d).toLocaleDateString("it-IT") : "—"; }
 
 // ── Form Proprietario ─────────────────────────────────────────────────────────
 function PropModal({ initial, onSave, onClose }) {
@@ -56,6 +57,445 @@ function PropModal({ initial, onSave, onClose }) {
             <input className="inp" type="email" value={form.email || ""} onChange={set("email")} />
           </Field>
         </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ── Modal aggiornamento registrazioni dopo cambio default ─────────────────────
+function DefaultUpdateModal({ data, onClose }) {
+  const [updMovimenti, setUpdMovimenti] = useState(true);
+  const [updDocumenti, setUpdDocumenti] = useState(true);
+  const [saving, setSaving]             = useState(false);
+  const [result, setResult]             = useState(null);
+
+  async function apply() {
+    setSaving(true);
+    try {
+      let cntM = 0, cntD = 0;
+      if (updMovimenti) {
+        const r = await associazioniApi.bulkUpdateIncassatore({
+          appartamentoId: data.appartamentoId,
+          proprietarioId: data.proprietarioId,
+          dataFrom:       data.dataFrom,
+        });
+        cntM = r?.count ?? 0;
+      }
+      if (updDocumenti) {
+        const r = await associazioniApi.bulkUpdatePagatore({
+          appartamentoId: data.appartamentoId,
+          proprietarioId: data.proprietarioId,
+          dataFrom:       data.dataFrom,
+        });
+        cntD = r?.count ?? 0;
+      }
+      setResult({ cntM, cntD });
+    } catch (e) {
+      alert("Errore aggiornamento: " + e.message);
+      setSaving(false);
+    }
+  }
+
+  if (result) {
+    return (
+      <Modal
+        title="Aggiornamento completato"
+        onClose={onClose}
+        width={400}
+        footer={<Btn variant="primary" onClick={onClose}>Chiudi</Btn>}
+      >
+        <div style={{ display: "grid", gap: 10, fontSize: 14 }}>
+          <p style={{ margin: 0 }}>
+            <i className="ti ti-circle-check" style={{ color: "var(--green)", marginRight: 8 }} />
+            Entrate aggiornate: <strong>{result.cntM}</strong>
+          </p>
+          <p style={{ margin: 0 }}>
+            <i className="ti ti-circle-check" style={{ color: "var(--green)", marginRight: 8 }} />
+            Spese aggiornate: <strong>{result.cntD}</strong>
+          </p>
+        </div>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal
+      title="Aggiorna registrazioni esistenti?"
+      onClose={onClose}
+      width={460}
+      footer={<>
+        <Btn variant="ghost" onClick={onClose}>Salta</Btn>
+        <Btn variant="primary" onClick={apply} disabled={saving || (!updMovimenti && !updDocumenti)}>
+          {saving ? "Aggiorno…" : "Aggiorna"}
+        </Btn>
+      </>}
+    >
+      <div style={{ display: "grid", gap: 14, fontSize: 13 }}>
+        <p style={{ margin: 0, color: "var(--text2)" }}>
+          Vuoi aggiornare le registrazioni già presenti per questo appartamento
+          a partire dal <strong>{fmt(data.dataFrom)}</strong>?
+        </p>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+          <input type="checkbox" checked={updMovimenti} onChange={e => setUpdMovimenti(e.target.checked)} />
+          Entrate (chi incassa)
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+          <input type="checkbox" checked={updDocumenti} onChange={e => setUpdDocumenti(e.target.checked)} />
+          Spese (chi paga)
+        </label>
+      </div>
+    </Modal>
+  );
+}
+
+// ── Modal anomalie validità proprietari ───────────────────────────────────────
+function AnomalieModal({ onClose }) {
+  const [data,    setData]    = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [err,     setErr]     = useState(null);
+
+  useEffect(() => {
+    associazioniApi.verificaAnomalie()
+      .then(setData)
+      .catch(e => setErr(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const totale = (data?.movimenti?.length ?? 0) + (data?.documenti?.length ?? 0);
+
+  return (
+    <Modal
+      title="Verifica anomalie proprietari"
+      onClose={onClose}
+      width={700}
+      footer={<Btn variant="ghost" onClick={onClose}>Chiudi</Btn>}
+    >
+      {loading && <p style={{ color: "var(--text2)", fontSize: 13 }}>Analisi in corso…</p>}
+      {err && <p style={{ color: "var(--red)", fontSize: 13 }}>{err}</p>}
+      {data && (
+        <div style={{ display: "grid", gap: 16 }}>
+          {totale === 0 ? (
+            <p style={{ color: "var(--green)", fontSize: 14 }}>
+              <i className="ti ti-circle-check" style={{ marginRight: 6 }} />
+              Nessuna anomalia rilevata.
+            </p>
+          ) : (
+            <>
+              <p style={{ fontSize: 13, color: "var(--text2)", margin: 0 }}>
+                {totale} registrazione{totale !== 1 ? "i" : ""} fuori dal periodo di validità del proprietario.
+              </p>
+              {data.movimenti.length > 0 && (
+                <div>
+                  <p style={{ fontWeight: 600, fontSize: 13, margin: "0 0 8px", color: "var(--accent)" }}>
+                    Entrate ({data.movimenti.length})
+                  </p>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ color: "var(--text2)", borderBottom: "1px solid var(--border)" }}>
+                        <th style={{ textAlign: "left", padding: "3px 8px" }}>Data</th>
+                        <th style={{ textAlign: "left", padding: "3px 8px" }}>Appartamento</th>
+                        <th style={{ textAlign: "left", padding: "3px 8px" }}>Proprietario</th>
+                        <th style={{ textAlign: "right", padding: "3px 8px" }}>Importo</th>
+                        <th style={{ textAlign: "left", padding: "3px 8px" }}>Periodo rif.</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.movimenti.map(m => (
+                        <tr key={m.id} style={{ borderBottom: "1px solid var(--border)" }}>
+                          <td style={{ padding: "5px 8px" }}>{fmtE(m.data_riferimento)}</td>
+                          <td style={{ padding: "5px 8px" }}>{m.appartamento_nome}</td>
+                          <td style={{ padding: "5px 8px" }}>{m.proprietario_nome}</td>
+                          <td style={{ padding: "5px 8px", textAlign: "right" }}>
+                            {Number(m.importo).toLocaleString("it-IT", { style: "currency", currency: "EUR" })}
+                          </td>
+                          <td style={{ padding: "5px 8px" }}>{m.mese_riferimento || "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {data.documenti.length > 0 && (
+                <div>
+                  <p style={{ fontWeight: 600, fontSize: 13, margin: "0 0 8px", color: "var(--accent)" }}>
+                    Spese ({data.documenti.length})
+                  </p>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ color: "var(--text2)", borderBottom: "1px solid var(--border)" }}>
+                        <th style={{ textAlign: "left", padding: "3px 8px" }}>Data</th>
+                        <th style={{ textAlign: "left", padding: "3px 8px" }}>Appartamento</th>
+                        <th style={{ textAlign: "left", padding: "3px 8px" }}>Proprietario</th>
+                        <th style={{ textAlign: "right", padding: "3px 8px" }}>Importo</th>
+                        <th style={{ textAlign: "left", padding: "3px 8px" }}>Descrizione</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.documenti.map(d => (
+                        <tr key={d.id} style={{ borderBottom: "1px solid var(--border)" }}>
+                          <td style={{ padding: "5px 8px" }}>{fmtE(d.data_caricamento)}</td>
+                          <td style={{ padding: "5px 8px" }}>{d.appartamento_nome}</td>
+                          <td style={{ padding: "5px 8px" }}>{d.proprietario_nome}</td>
+                          <td style={{ padding: "5px 8px", textAlign: "right" }}>
+                            {Number(d.importo).toLocaleString("it-IT", { style: "currency", currency: "EUR" })}
+                          </td>
+                          <td style={{ padding: "5px 8px" }}>{d.descrizione || "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+// ── Modal elimina associazione con verifica dipendenze ────────────────────────
+function EliminaAssocModal({ assocId, onClose, onDone }) {
+  const [deps,    setDeps]    = useState(null);
+  const [nuovoId, setNuovoId] = useState("");
+  const [saving,  setSaving]  = useState(false);
+  const [err,     setErr]     = useState(null);
+
+  useEffect(() => {
+    associazioniApi.dipendenze(assocId)
+      .then(setDeps)
+      .catch(e => setErr(e.message));
+  }, [assocId]);
+
+  const totM    = deps?.movimenti?.length ?? 0;
+  const totD    = deps?.documenti?.length ?? 0;
+  const totDeps = totM + totD;
+  const nomeP   = deps ? `${deps.assoc.proprietario_nome} ${deps.assoc.proprietario_cognome || ""}`.trim() : "…";
+
+  async function conferma() {
+    setSaving(true);
+    try {
+      if (totDeps > 0) {
+        await associazioniApi.elimina(assocId, nuovoId || null);
+      } else {
+        await associazioniApi.delete(assocId);
+      }
+      onDone();
+    } catch (e) {
+      setErr(e.message);
+      setSaving(false);
+    }
+  }
+
+  const cellStyle = { padding: "5px 8px", fontSize: 12 };
+  const headStyle = { ...cellStyle, color: "var(--text2)", fontWeight: 600, borderBottom: "1px solid var(--border)", textAlign: "left" };
+
+  return (
+    <Modal
+      title={`Elimina associazione — ${nomeP}`}
+      onClose={onClose}
+      width={580}
+      footer={<>
+        <Btn variant="ghost" onClick={onClose}>Annulla</Btn>
+        <Btn variant="danger" onClick={conferma} disabled={saving || !deps}>
+          {saving ? "Elimino…" : "Elimina"}
+        </Btn>
+      </>}
+    >
+      <div style={{ display: "grid", gap: 16, fontSize: 13 }}>
+        {err && <p style={{ color: "var(--red)", margin: 0 }}>{err}</p>}
+        {!deps && !err && <p style={{ color: "var(--text2)" }}>Controllo dipendenze…</p>}
+
+        {deps && totDeps === 0 && (
+          <p style={{ margin: 0 }}>
+            <i className="ti ti-circle-check" style={{ color: "var(--green)", marginRight: 6 }} />
+            Nessuna entrata o spesa collegata. L'associazione verrà eliminata.
+          </p>
+        )}
+
+        {deps && totM > 0 && (
+          <div>
+            <p style={{ margin: "0 0 6px", fontWeight: 600, color: "var(--accent)" }}>
+              <i className="ti ti-arrow-down-circle" style={{ marginRight: 6 }} />
+              Entrate collegate ({totM})
+            </p>
+            <div style={{ maxHeight: 180, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 6 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead style={{ position: "sticky", top: 0, background: "var(--bg2)" }}>
+                  <tr>
+                    <th style={headStyle}>Data</th>
+                    <th style={headStyle}>Periodo rif.</th>
+                    <th style={{ ...headStyle, textAlign: "right" }}>Importo</th>
+                    <th style={headStyle}>Tipo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deps.movimenti.map(m => (
+                    <tr key={m.id} style={{ borderBottom: "1px solid var(--border)" }}>
+                      <td style={cellStyle}>{fmtE(m.data_riferimento) || "—"}</td>
+                      <td style={cellStyle}>{m.mese_riferimento || "—"}</td>
+                      <td style={{ ...cellStyle, textAlign: "right", fontWeight: 600 }}>
+                        {Number(m.importo).toLocaleString("it-IT", { style: "currency", currency: "EUR" })}
+                      </td>
+                      <td style={{ ...cellStyle, color: "var(--text2)" }}>{m.tipo_versamento || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {deps && totD > 0 && (
+          <div>
+            <p style={{ margin: "0 0 6px", fontWeight: 600, color: "var(--accent)" }}>
+              <i className="ti ti-file-invoice" style={{ marginRight: 6 }} />
+              Spese collegate ({totD})
+            </p>
+            <div style={{ maxHeight: 180, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 6 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead style={{ position: "sticky", top: 0, background: "var(--bg2)" }}>
+                  <tr>
+                    <th style={headStyle}>Data</th>
+                    <th style={headStyle}>Descrizione</th>
+                    <th style={{ ...headStyle, textAlign: "right" }}>Importo</th>
+                    <th style={headStyle}>Periodo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deps.documenti.map(d => (
+                    <tr key={d.id} style={{ borderBottom: "1px solid var(--border)" }}>
+                      <td style={cellStyle}>{fmtE(d.data_riferimento) || "—"}</td>
+                      <td style={{ ...cellStyle, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {d.descrizione || "—"}
+                      </td>
+                      <td style={{ ...cellStyle, textAlign: "right", fontWeight: 600 }}>
+                        {Number(d.importo).toLocaleString("it-IT", { style: "currency", currency: "EUR" })}
+                      </td>
+                      <td style={{ ...cellStyle, color: "var(--text2)" }}>
+                        {d.periodo_da || "—"}{d.periodo_a && d.periodo_a !== d.periodo_da ? ` → ${d.periodo_a}` : ""}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {deps && totDeps > 0 && (
+          <Field label="Trasferisci entrate/spese a:">
+            <select className="inp" value={nuovoId} onChange={e => setNuovoId(e.target.value)}>
+              <option value="">— Lascia senza proprietario —</option>
+              {deps.alternativi.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.nome} {p.cognome || ""}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+// ── Modal anomalie di validità dopo modifica associazione ─────────────────────
+function AnomalieValiditaModal({ assocId, onClose, onDone }) {
+  const [data,    setData]    = useState(null);
+  const [nuovoId, setNuovoId] = useState("");
+  const [saving,  setSaving]  = useState(false);
+  const [err,     setErr]     = useState(null);
+
+  useEffect(() => {
+    associazioniApi.anomalieValidita(assocId)
+      .then(setData)
+      .catch(e => setErr(e.message));
+  }, [assocId]);
+
+  const totM   = data?.movimenti?.length ?? 0;
+  const totD   = data?.documenti?.length ?? 0;
+  const totale = totM + totD;
+  const nomeP  = data ? `${data.assoc.proprietario_nome} ${data.assoc.proprietario_cognome || ""}`.trim() : "…";
+
+  async function applica() {
+    setSaving(true);
+    try {
+      await associazioniApi.riassegnaAnomalie(assocId, nuovoId || null);
+      onDone();
+    } catch (e) {
+      setErr(e.message);
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      title={`Anomalie di validità — ${nomeP}`}
+      onClose={onClose}
+      width={520}
+      footer={<>
+        <Btn variant="ghost" onClick={onClose}>Ignora</Btn>
+        {totale > 0 && (
+          <Btn variant="primary" onClick={applica} disabled={saving || !data}>
+            {saving ? "Aggiorno…" : "Riassegna"}
+          </Btn>
+        )}
+      </>}
+    >
+      <div style={{ display: "grid", gap: 14, fontSize: 13 }}>
+        {err && <p style={{ color: "var(--red)", margin: 0 }}>{err}</p>}
+        {!data && !err && <p style={{ color: "var(--text2)" }}>Verifica in corso…</p>}
+
+        {data && totale === 0 && (
+          <p style={{ margin: 0 }}>
+            <i className="ti ti-circle-check" style={{ color: "var(--green)", marginRight: 6 }} />
+            Nessuna anomalia: tutte le registrazioni rientrano nel periodo di validità.
+          </p>
+        )}
+
+        {data && totale > 0 && (
+          <>
+            <div style={{ background: "var(--bg3)", borderRadius: 8, padding: "10px 14px", display: "grid", gap: 6 }}>
+              <p style={{ margin: 0, fontWeight: 600, color: "var(--red)" }}>
+                <i className="ti ti-alert-triangle" style={{ marginRight: 6 }} />
+                {totale} registrazione{totale !== 1 ? "i" : ""} fuori dal periodo di validità:
+              </p>
+              {totM > 0 && (
+                <div>
+                  <p style={{ margin: "4px 0 4px", fontWeight: 600 }}>Entrate ({totM}):</p>
+                  {data.movimenti.map(m => (
+                    <p key={m.id} style={{ margin: "2px 0", paddingLeft: 12 }}>
+                      • {fmtE(m.data_riferimento)} — {Number(m.importo).toLocaleString("it-IT", { style: "currency", currency: "EUR" })}
+                      {m.mese_riferimento ? ` — ${m.mese_riferimento}` : ""}
+                    </p>
+                  ))}
+                </div>
+              )}
+              {totD > 0 && (
+                <div>
+                  <p style={{ margin: "4px 0 4px", fontWeight: 600 }}>Spese ({totD}):</p>
+                  {data.documenti.map(d => (
+                    <p key={d.id} style={{ margin: "2px 0", paddingLeft: 12 }}>
+                      • {fmtE(d.data_riferimento)} — {Number(d.importo).toLocaleString("it-IT", { style: "currency", currency: "EUR" })}
+                      {d.descrizione ? ` — ${d.descrizione}` : ""}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+            <Field label="Riassegna a:">
+              <select className="inp" value={nuovoId} onChange={e => setNuovoId(e.target.value)}>
+                <option value="">— Lascia senza proprietario —</option>
+                {data.alternativi.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.nome} {p.cognome || ""}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </>
+        )}
       </div>
     </Modal>
   );
@@ -134,10 +574,12 @@ function AssocModal({ initial, proprietari, appartamentoId, onSave, onClose }) {
 
 // ── Sezione Associazioni per appartamento ─────────────────────────────────────
 function AssocPanel({ appartamento, proprietari }) {
-  const [assoc, setAssoc] = useState(null);
-  const [showForm, setShowForm] = useState(false);
-  const [editing, setEditing] = useState(null);
-  const [delId, setDelId] = useState(null);
+  const [assoc,                setAssoc]                = useState(null);
+  const [showForm,             setShowForm]             = useState(false);
+  const [editing,              setEditing]              = useState(null);
+  const [delAssocId,           setDelAssocId]           = useState(null);
+  const [pendingBulkUpdate,    setPendingBulkUpdate]    = useState(null);
+  const [pendingAnomalieAssocId, setPendingAnomalieAssocId] = useState(null);
 
   const load = useCallback(async () => {
     const rows = await associazioniApi.listByAppartamento(appartamento.id);
@@ -147,22 +589,53 @@ function AssocPanel({ appartamento, proprietari }) {
   useEffect(() => { load(); }, [load]);
 
   async function handleSave(form) {
-    if (editing) await associazioniApi.update(editing.id, form);
-    else await associazioniApi.create(form);
+    let savedId = null;
+    if (editing) {
+      await associazioniApi.update(editing.id, form);
+      savedId = editing.id;
+    } else {
+      const created = await associazioniApi.create(form);
+      savedId = created?.id;
+    }
     await load();
-  }
 
-  async function handleDelete() {
-    await associazioniApi.delete(delId);
-    setDelId(null);
-    await load();
+    if (form.proprietario_default) {
+      setPendingBulkUpdate({
+        appartamentoId: appartamento.id,
+        proprietarioId: form.proprietario_id,
+        dataFrom:       form.data_inizio,
+      });
+    } else if (savedId && (form.data_fine || form.data_inizio)) {
+      // Verifica anomalie se sono stati toccati i limiti di validità
+      setPendingAnomalieAssocId(savedId);
+    }
   }
 
   if (!assoc) return <p style={{ fontSize: 12, color: "var(--text2)" }}>Carico…</p>;
 
+  const oggi = new Date().toISOString().slice(0, 10);
+  const assocAttive = assoc.filter(a =>
+    a.data_inizio <= oggi && (a.data_fine == null || a.data_fine >= oggi)
+  );
+  const totalePct = assocAttive.reduce((s, a) => s + Number(a.percentuale_proprieta), 0);
+  const pctOk = Math.abs(totalePct - 100) < 0.01;
+
   return (
     <div style={{ marginTop: 8 }}>
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        {assocAttive.length > 0 && (
+          <span style={{
+            fontSize: 12, padding: "3px 10px", borderRadius: 20, fontWeight: 600,
+            background: pctOk ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)",
+            color: pctOk ? "var(--green)" : "var(--red)",
+            border: `1px solid ${pctOk ? "var(--green)" : "var(--red)"}`,
+          }}>
+            <i className={`ti ti-percentage`} style={{ marginRight: 4 }} />
+            Totale attuale: {totalePct.toFixed(2)}%
+            {!pctOk && " — dovrebbe essere 100%"}
+          </span>
+        )}
+        {assocAttive.length === 0 && <span />}
         <Btn size="sm" variant="primary" onClick={() => { setEditing(null); setShowForm(true); }}>
           <i className="ti ti-plus" /> Aggiungi
         </Btn>
@@ -199,7 +672,7 @@ function AssocPanel({ appartamento, proprietari }) {
                     <Btn size="sm" variant="ghost" onClick={() => { setEditing(a); setShowForm(true); }}>
                       <i className="ti ti-pencil" />
                     </Btn>
-                    <Btn size="sm" variant="ghost" onClick={() => setDelId(a.id)}>
+                    <Btn size="sm" variant="ghost" onClick={() => setDelAssocId(a.id)}>
                       <i className="ti ti-trash" style={{ color: "var(--red)" }} />
                     </Btn>
                   </td>
@@ -219,11 +692,24 @@ function AssocPanel({ appartamento, proprietari }) {
           onClose={() => { setShowForm(false); setEditing(null); }}
         />
       )}
-      {delId && (
-        <Confirm
-          msg="Eliminare questa associazione?"
-          onYes={handleDelete}
-          onNo={() => setDelId(null)}
+      {delAssocId && (
+        <EliminaAssocModal
+          assocId={delAssocId}
+          onClose={() => setDelAssocId(null)}
+          onDone={() => { setDelAssocId(null); load(); }}
+        />
+      )}
+      {pendingBulkUpdate && (
+        <DefaultUpdateModal
+          data={pendingBulkUpdate}
+          onClose={() => setPendingBulkUpdate(null)}
+        />
+      )}
+      {pendingAnomalieAssocId && (
+        <AnomalieValiditaModal
+          assocId={pendingAnomalieAssocId}
+          onClose={() => setPendingAnomalieAssocId(null)}
+          onDone={() => { setPendingAnomalieAssocId(null); load(); }}
         />
       )}
     </div>
@@ -267,14 +753,113 @@ function AppartamentiSection({ proprietari }) {
   );
 }
 
+// ── Modal elimina con riassegnazione ──────────────────────────────────────────
+function EliminaProprietarioModal({ proprietario, onClose, onDone }) {
+  const [deps,   setDeps]   = useState(null);
+  const [nuovoId, setNuovoId] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [err,    setErr]    = useState(null);
+
+  useEffect(() => {
+    proprietariApi.dipendenze(proprietario.id)
+      .then(d => { setDeps(d); if (!d.alternativi?.length) setNuovoId(""); })
+      .catch(e => setErr(e.message));
+  }, [proprietario.id]);
+
+  const totDeps = deps ? deps.movimenti + deps.documenti + deps.regole : 0;
+
+  async function conferma() {
+    setSaving(true);
+    try {
+      if (totDeps > 0) {
+        await proprietariApi.elimina(proprietario.id, nuovoId || null);
+      } else {
+        await proprietariApi.delete(proprietario.id);
+      }
+      onDone();
+    } catch (e) {
+      setErr(e.message);
+      setSaving(false);
+    }
+  }
+
+  const nomeP = `${proprietario.nome} ${proprietario.cognome || ""}`.trim();
+
+  return (
+    <Modal
+      title={`Elimina ${nomeP}`}
+      onClose={onClose}
+      width={480}
+      footer={<>
+        <Btn variant="ghost" onClick={onClose}>Annulla</Btn>
+        <Btn
+          variant="danger"
+          onClick={conferma}
+          disabled={saving || !deps || (totDeps > 0 && nuovoId === "" && deps.movimenti + deps.documenti > 0)}
+        >
+          {saving ? "Elimino…" : "Elimina"}
+        </Btn>
+      </>}
+    >
+      <div style={{ display: "grid", gap: 14, fontSize: 13 }}>
+        {err && <p style={{ color: "var(--red)", margin: 0 }}>{err}</p>}
+        {!deps && !err && <p style={{ color: "var(--text2)" }}>Controllo dipendenze…</p>}
+
+        {deps && totDeps === 0 && (
+          <p style={{ margin: 0 }}>
+            <i className="ti ti-circle-check" style={{ color: "var(--green)", marginRight: 6 }} />
+            Nessuna dipendenza. Il proprietario verrà eliminato.
+          </p>
+        )}
+
+        {deps && totDeps > 0 && (
+          <>
+            <div style={{ background: "var(--bg3)", borderRadius: 8, padding: "10px 14px", display: "grid", gap: 6 }}>
+              <p style={{ margin: 0, fontWeight: 600, color: "var(--red)" }}>
+                <i className="ti ti-alert-triangle" style={{ marginRight: 6 }} />
+                Dipendenze trovate:
+              </p>
+              {deps.movimenti > 0 && <p style={{ margin: 0 }}>• {deps.movimenti} entrata{deps.movimenti !== 1 ? "e" : ""} (incassatore)</p>}
+              {deps.documenti > 0 && <p style={{ margin: 0 }}>• {deps.documenti} spesa{deps.documenti !== 1 ? "e" : ""} (pagante)</p>}
+              {deps.regole    > 0 && <p style={{ margin: 0 }}>• {deps.regole} regola{deps.regole !== 1 ? "e" : ""} di riparto (verrà rimosso)</p>}
+            </div>
+
+            {deps.movimenti + deps.documenti > 0 && (
+              <Field label="Trasferisci entrate/spese a:">
+                <select
+                  className="inp"
+                  value={nuovoId}
+                  onChange={e => setNuovoId(e.target.value)}
+                >
+                  <option value="">— Lascia senza proprietario —</option>
+                  {deps.alternativi.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.nome} {p.cognome || ""}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
+
+            <p style={{ margin: 0, fontSize: 12, color: "var(--text2)" }}>
+              Le regole di riparto verranno aggiornate automaticamente.
+            </p>
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 // ── Tab principale ────────────────────────────────────────────────────────────
 export function Proprietari() {
-  const [proprietari, setProprietari] = useState(null);
-  const [showForm, setShowForm]       = useState(false);
-  const [editing, setEditing]         = useState(null);
-  const [delId, setDelId]             = useState(null);
-  const [err, setErr]                 = useState(null);
-  const [sezione, setSezione]         = useState("proprietari");
+  const [proprietari,    setProprietari]    = useState(null);
+  const [showForm,       setShowForm]       = useState(false);
+  const [editing,        setEditing]        = useState(null);
+  const [delProp,        setDelProp]        = useState(null);
+  const [err,            setErr]            = useState(null);
+  const [sezione,        setSezione]        = useState("proprietari");
+  const [showAnomalie,   setShowAnomalie]   = useState(false);
 
   const load = useCallback(async () => {
     try { setProprietari(await proprietariApi.list()); }
@@ -289,15 +874,9 @@ export function Proprietari() {
     await load();
   }
 
-  async function handleDelete() {
-    try {
-      await proprietariApi.delete(delId);
-      setDelId(null);
-      await load();
-    } catch (e) {
-      setDelId(null);
-      setErr(e.message);
-    }
+  async function handleDelDone() {
+    setDelProp(null);
+    await load();
   }
 
   return (
@@ -319,6 +898,13 @@ export function Proprietari() {
               onClick={() => setSezione("associazioni")}
             >
               <i className="ti ti-link" /> Associazioni
+            </Btn>
+            <Btn
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowAnomalie(true)}
+            >
+              <i className="ti ti-alert-triangle" /> Verifica anomalie
             </Btn>
           </div>
         }
@@ -373,7 +959,7 @@ export function Proprietari() {
                         <Btn size="sm" variant="ghost" onClick={() => { setEditing(p); setShowForm(true); }}>
                           <i className="ti ti-pencil" />
                         </Btn>
-                        <Btn size="sm" variant="ghost" onClick={() => setDelId(p.id)}>
+                        <Btn size="sm" variant="ghost" onClick={() => setDelProp(p)}>
                           <i className="ti ti-trash" style={{ color: "var(--red)" }} />
                         </Btn>
                       </div>
@@ -396,12 +982,15 @@ export function Proprietari() {
           onClose={() => { setShowForm(false); setEditing(null); }}
         />
       )}
-      {delId && (
-        <Confirm
-          msg="Eliminare questo proprietario? L'operazione non è consentita se è già associato a pagamenti o versamenti."
-          onYes={handleDelete}
-          onNo={() => setDelId(null)}
+      {delProp && (
+        <EliminaProprietarioModal
+          proprietario={delProp}
+          onClose={() => setDelProp(null)}
+          onDone={handleDelDone}
         />
+      )}
+      {showAnomalie && (
+        <AnomalieModal onClose={() => setShowAnomalie(false)} />
       )}
     </div>
   );

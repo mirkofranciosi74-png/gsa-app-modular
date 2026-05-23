@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { archivioTipiApi, archivioApi, appartamentiApi, proprietariApi, documentiApi } from "../api.js";
 import { Btn, Badge, Modal, Field, SectionHeader, Confirm } from "../components/ui.jsx";
 import { toITdate } from "../utils/formatters.js";
+import ImportaCartellaModal from "../components/ImportaCartellaModal.jsx";
+import DocPreview           from "../components/DocPreview.jsx";
 
 // Mappa tipi MIME → icona
 function mimeIcon(mime) {
@@ -174,15 +176,16 @@ function TipoModal({ initial, onSave, onClose }) {
 // Archivio documenti
 // ─────────────────────────────────────────────────────────────────────────────
 function Archivio() {
-  const [docs,     setDocs]    = useState([]);
-  const [tipi,     setTipi]    = useState([]);
-  const [apps,     setApps]    = useState([]);
-  const [props,    setProps]   = useState([]);
-  const [filtro,   setFilt]    = useState({ tipoId: "", entitaTipo: "", entitaId: "" });
-  const [modal,    setModal]   = useState(null);
-  const [rename,   setRename]  = useState(null);  // { id, nomeCorrente }
-  const [conf,     setConf]    = useState(null);
-  const [errFile,  setErrFile] = useState(null);  // id del file non trovato
+  const [docs,       setDocs]       = useState([]);
+  const [tipi,       setTipi]       = useState([]);
+  const [apps,       setApps]       = useState([]);
+  const [props,      setProps]       = useState([]);
+  const [filtro,     setFilt]       = useState({ tipoId: "", entitaTipo: "", entitaId: "" });
+  const [modal,      setModal]      = useState(null);
+  const [rename,     setRename]     = useState(null);
+  const [conf,       setConf]       = useState(null);
+  const [errFile,    setErrFile]    = useState(null);
+  const [cartellaMdl, setCartellaMdl] = useState(false);
   // bulk upload queue: array di { file, done }
   const [bulkQueue,  setBulkQueue]  = useState([]);
   const [bulkIndex,  setBulkIndex]  = useState(0);
@@ -304,6 +307,9 @@ function Archivio() {
     <div>
       {/* Toolbar */}
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginBottom: 14 }}>
+        <Btn variant="ghost" onClick={() => setCartellaMdl(true)}>
+          <i className="ti ti-folder-up" /> Importa cartella
+        </Btn>
         <Btn variant="ghost" onClick={() => bulkFileRef.current.click()}>
           <i className="ti ti-layers-union" /> Carica multiple
         </Btn>
@@ -445,6 +451,8 @@ function Archivio() {
                              mode: "edit", id: d.id,
                              tipDocId: d.tipo_documento_id || "",
                              note: d.note || "",
+                             mimeType: d.mime_type  || "",
+                             nomeFile: d.nome_file  || "",
                              associazioni: (d.associazioni || []).map(a => ({
                                entita_tipo: a.entita_tipo, entita_id: a.entita_id,
                              })),
@@ -487,6 +495,17 @@ function Archivio() {
         />
       )}
       {conf && <Confirm msg={conf.msg} onYes={conf.onYes} onNo={() => setConf(null)} />}
+
+      {/* ── IMPORTA CARTELLA ── */}
+      {cartellaMdl && (
+        <ImportaCartellaModal
+          tipi={tipi}
+          apps={apps}
+          props={props}
+          onSaved={load}
+          onClose={() => { setCartellaMdl(false); }}
+        />
+      )}
     </div>
   );
 }
@@ -554,12 +573,18 @@ function DocModal({ mode, initial, tipi, apps, props, bulkInfo, onSave, onClose 
     catch (e) { alert("Errore: " + e.message); setSaving(false); }
   }
 
+  // URL per la preview
+  const previewFile = mode === "upload" ? form.file : null;
+  const previewUrl  = mode === "edit"   ? archivioApi.fileUrl(form.id) : null;
+  const previewMime = form.mimeType || form.file?.type || "";
+  const previewNome = form.nomeFile || form.file?.name || "";
+
   return (
     <Modal
       title={mode === "upload"
         ? `Carica: ${form.file?.name}${bulkInfo ? ` (${bulkInfo.current}/${bulkInfo.total})` : ""}`
-        : "Modifica documento"}
-      onClose={onClose} width={560}
+        : `Modifica: ${form.nomeFile || "documento"}`}
+      onClose={onClose} width={1020} resizable
       footer={<>
         <Btn variant="ghost" onClick={onClose}>
           {bulkInfo ? "Salta" : "Annulla"}
@@ -569,58 +594,61 @@ function DocModal({ mode, initial, tipi, apps, props, bulkInfo, onSave, onClose 
         </Btn>
       </>}
     >
-      <div style={{ display: "grid", gap: 16 }}>
-        {bulkInfo && (
-          <div style={{ display: "flex", gap: 6, alignItems: "center",
-                        padding: "6px 12px", background: "rgba(59,130,246,0.1)",
-                        borderRadius: 6, border: "1px solid rgba(59,130,246,0.3)" }}>
-            <i className="ti ti-layers-union" style={{ color: "var(--accent)" }} />
-            <span style={{ fontSize: 12, color: "var(--accent)", fontWeight: 600 }}>
-              Caricamento multiplo — file {bulkInfo.current} di {bulkInfo.total}
-            </span>
-          </div>
-        )}
-        <Field label="Tipo documento">
-          <select className="inp" value={form.tipDocId}
-                  onChange={e => setForm(f => ({ ...f, tipDocId: e.target.value }))}>
-            <option value="">— nessuno —</option>
-            {tipi.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
-          </select>
-        </Field>
+      <div style={{ display: "flex", gap: 18, alignItems: "flex-start" }}>
 
-        <Field label="Note">
-          <input className="inp" value={form.note}
-                 onChange={e => setForm(f => ({ ...f, note: e.target.value }))} />
-        </Field>
+        {/* ── FORM (sinistra) ── */}
+        <div style={{ width: 380, flexShrink: 0, display: "flex", flexDirection: "column", gap: 16 }}>
+          {bulkInfo && (
+            <div style={{ display: "flex", gap: 6, alignItems: "center",
+                          padding: "6px 12px", background: "rgba(59,130,246,0.1)",
+                          borderRadius: 6, border: "1px solid rgba(59,130,246,0.3)" }}>
+              <i className="ti ti-layers-union" style={{ color: "var(--accent)" }} />
+              <span style={{ fontSize: 12, color: "var(--accent)", fontWeight: 600 }}>
+                Caricamento multiplo — file {bulkInfo.current} di {bulkInfo.total}
+              </span>
+            </div>
+          )}
+          <Field label="Tipo documento">
+            <select className="inp" value={form.tipDocId}
+                    onChange={e => setForm(f => ({ ...f, tipDocId: e.target.value }))}>
+              <option value="">— nessuno —</option>
+              {tipi.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
+            </select>
+          </Field>
 
-        {entitaDisponibili.length > 0 && (
-          <div>
-            <label style={{ fontSize: 12, color: "var(--text2)", fontWeight: 600,
-                            display: "block", marginBottom: 10 }}>
-              Associa a
-            </label>
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              {entitaDisponibili.map(tipo => (
-                <div key={tipo}>
-                  <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em",
-                                color: "var(--text2)", marginBottom: 6 }}>
-                    {ENTITA_LABELS[tipo] || tipo}
-                  </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxHeight: 120, overflowY: "auto" }}>
-                    {(entitaOptions[tipo] || []).map(x => {
-                      const sel = form.associazioni.some(a => a.entita_tipo === tipo && a.entita_id === x.id);
-                      return (
-                        <button key={x.id} onClick={() => toggleAssoc(tipo, x.id)}
-                                style={{
-                                  padding: "4px 10px", borderRadius: 20, fontSize: 12, cursor: "pointer",
-                                  border: sel ? "1px solid var(--accent)" : "1px solid var(--border)",
-                                  background: sel ? "rgba(59,130,246,0.15)" : "var(--bg3)",
-                                  color: sel ? "var(--accent)" : "var(--text2)",
-                                  fontWeight: sel ? 600 : 400,
-                                }}>
-                          {x.nome}{x.app ? ` (${x.app})` : ""}
-                        </button>
-                      );
+          <Field label="Note">
+            <input className="inp" value={form.note}
+                   onChange={e => setForm(f => ({ ...f, note: e.target.value }))} />
+          </Field>
+
+          {entitaDisponibili.length > 0 && (
+            <div>
+              <label style={{ fontSize: 12, color: "var(--text2)", fontWeight: 600,
+                              display: "block", marginBottom: 10 }}>
+                Associa a
+              </label>
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                {entitaDisponibili.map(tipo => (
+                  <div key={tipo}>
+                    <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em",
+                                  color: "var(--text2)", marginBottom: 6 }}>
+                      {ENTITA_LABELS[tipo] || tipo}
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxHeight: 120, overflowY: "auto" }}>
+                      {(entitaOptions[tipo] || []).map(x => {
+                        const sel = form.associazioni.some(a => a.entita_tipo === tipo && a.entita_id === x.id);
+                        return (
+                          <button key={x.id} onClick={() => toggleAssoc(tipo, x.id)}
+                                  style={{
+                                    padding: "4px 10px", borderRadius: 20, fontSize: 12, cursor: "pointer",
+                                    border: sel ? "1px solid var(--accent)" : "1px solid var(--border)",
+                                    background: sel ? "rgba(59,130,246,0.15)" : "var(--bg3)",
+                                    color: sel ? "var(--accent)" : "var(--text2)",
+                                    fontWeight: sel ? 600 : 400,
+                                  }}>
+                            {x.nome}{x.app ? ` (${x.app})` : ""}
+                          </button>
+                        );
                     })}
                     {!(entitaOptions[tipo]?.length) &&
                       <span style={{ fontSize: 12, color: "var(--text2)" }}>
@@ -633,6 +661,19 @@ function DocModal({ mode, initial, tipi, apps, props, bulkInfo, onSave, onClose 
             </div>
           </div>
         )}
+        </div>
+
+        {/* ── PREVIEW (destra) ── */}
+        <div style={{ flex: 1, minWidth: 360 }}>
+          <DocPreview
+            file={previewFile}
+            url={previewUrl}
+            mime={previewMime}
+            nome={previewNome}
+            height={540}
+          />
+        </div>
+
       </div>
     </Modal>
   );
@@ -814,6 +855,8 @@ export function DocListEntita({ entitaTipo, entitaId, label }) {
                              mode: "edit", id: d.id,
                              tipDocId: d.tipo_documento_id || "",
                              note: d.note || "",
+                             mimeType: d.mime_type || "",
+                             nomeFile: d.nome_file || "",
                              associazioni: (d.associazioni || []).map(a => ({
                                entita_tipo: a.entita_tipo, entita_id: a.entita_id,
                              })),
