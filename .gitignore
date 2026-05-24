@@ -2,10 +2,17 @@ node_modules/
 frontend/node_modules/
 dist/
 frontend/dist/
+
+# Environment
 .env
 frontend/.env
+
+# Storage (PDF, allegati, archivio) — mai committare file utenti
 storage/
-backups/*.gz
-backups/*.sql
+
+# Backup database
+backups/*
+!backups/.gitkeep
+
 .DS_Store
 *.log
