@@ -66,7 +66,7 @@ export default function Dashboard({ setTab }) {
       })),
     },
     dashProp && (() => {
-      // Aggrega incassato e pagato per proprietario su tutti gli appartamenti
+      // Saldo reale per proprietario: incassato - pagato (spese effettive)
       const byProp = {};
       for (const a of dashProp.perAppartamento) {
         for (const p of a.perProprietario) {
@@ -89,12 +89,20 @@ export default function Dashboard({ setTab }) {
         }),
       };
     })(),
-    {
-      label: "Documenti",
-      value: dStats ? (parseInt(dStats.elaborati || 0) + parseInt(dStats.da_verificare || 0)) : "—",
-      icon: "ti-files", color: "#a855f7", bg: "#581c87",
-      action: () => setTab("documenti"),
-    },
+    dStats && (() => {
+      const nTrans    = parseInt(dStats.n_spese_inquilini || 0) + parseInt(dStats.n_allegati_spese_prop || 0);
+      const nArchivio = parseInt(dStats.n_archivio || 0);
+      return {
+        label: "Documenti",
+        value: nTrans + nArchivio,
+        icon: "ti-files", color: "#a855f7", bg: "#581c87",
+        action: () => setTab("documenti"),
+        rows: [
+          { label: "Spese Inquilini + Prop.", value: String(nTrans),    color: "#a855f7" },
+          { label: "Documentale",             value: String(nArchivio), color: "#7c3aed" },
+        ],
+      };
+    })(),
   ].filter(Boolean);
 
   return (
@@ -182,12 +190,12 @@ export default function Dashboard({ setTab }) {
           )}
         </div>
 
-        {/* Proprietari */}
+        {/* Proprietari — Riparto teorico */}
         <div className="card">
           <p style={{ fontWeight: 700, marginBottom: 12, fontSize: 15 }}>
             Riepilogo Proprietari
             <span style={{ fontSize: 10, fontWeight: 400, color: "var(--text2)", marginLeft: 8 }}>
-              dalla prima associazione ad oggi
+              (Conguaglio)
             </span>
           </p>
           {dashProp ? (() => {
@@ -195,10 +203,12 @@ export default function Dashboard({ setTab }) {
             const totPerProp = {};
             for (const a of dashProp.perAppartamento) {
               for (const p of a.perProprietario) {
-                if (!totPerProp[p.id]) totPerProp[p.id] = { nome: p.nome, dareTeorico: 0, incassato: 0, conguaglio: 0 };
-                totPerProp[p.id].dareTeorico += p.dareTeorico;
-                totPerProp[p.id].incassato   += p.incassato;
-                totPerProp[p.id].conguaglio  += p.conguaglio;
+                if (!totPerProp[p.id]) totPerProp[p.id] = { nome: p.nome, dareTeorico: 0, pagato: 0, avereTeorico: 0, incassato: 0, conguaglio: 0 };
+                totPerProp[p.id].dareTeorico  += p.dareTeorico;
+                totPerProp[p.id].pagato       += p.pagato;
+                totPerProp[p.id].avereTeorico += p.avereTeorico;
+                totPerProp[p.id].incassato    += p.incassato;
+                totPerProp[p.id].conguaglio   += p.conguaglio;
               }
             }
             const totals = Object.values(totPerProp);
@@ -209,52 +219,61 @@ export default function Dashboard({ setTab }) {
                   <tr style={{ borderBottom: "2px solid var(--bg3)" }}>
                     <th style={{ ...thP, textAlign: "left",  color: "var(--text2)" }}>Appartamento</th>
                     <th style={{ ...thP, textAlign: "left",  color: "var(--text2)" }}>Proprietario</th>
-                    <th style={{ ...thP, textAlign: "right", color: "#f87171" }}>Spese</th>
-                    <th style={{ ...thP, textAlign: "right", color: "#4ade80" }}>Entrate</th>
-                    <th style={{ ...thP, textAlign: "right", color: "#fbbf24" }}>Conguaglio</th>
+                    <th style={{ ...thP, textAlign: "right", color: "#f87171" }} title="Dare teorico − Pagato reale (spese inquilini + proprietari)">Δ Spese</th>
+                    <th style={{ ...thP, textAlign: "right", color: "#4ade80" }} title="Avere teorico − Incassato reale">Δ Entrate</th>
+                    <th style={{ ...thP, textAlign: "right", color: "#fbbf24" }} title="Dare/avere verso gli altri proprietari">Conguaglio</th>
                   </tr>
                 </thead>
                 <tbody>
                   {dashProp.perAppartamento.flatMap(a =>
-                    a.perProprietario.map((p, i) => (
-                      <tr key={p.id + a.id} style={{ borderBottom: "1px solid var(--bg3)" }}>
-                        <td style={{ padding: "6px 6px", fontSize: 10, color: "var(--text2)" }}>
-                          {i === 0 ? a.nome : ""}
+                    a.perProprietario.map((p, i) => {
+                      const dSpese   = p.dareTeorico  - p.pagato;
+                      const dEntrate = p.avereTeorico - p.incassato;
+                      return (
+                        <tr key={p.id + a.id} style={{ borderBottom: "1px solid var(--bg3)" }}>
+                          <td style={{ padding: "6px 6px", fontSize: 10, color: "var(--text2)" }}>
+                            {i === 0 ? a.nome : ""}
+                          </td>
+                          <td style={{ padding: "6px 6px", fontWeight: 500 }}>{p.nome}</td>
+                          <td style={{ padding: "6px 6px", textAlign: "right",
+                                       color: dSpese >= 0 ? "#f87171" : "#34d399" }}>
+                            {dSpese >= 0 ? "+" : ""}{euro(dSpese)}
+                          </td>
+                          <td style={{ padding: "6px 6px", textAlign: "right",
+                                       color: dEntrate >= 0 ? "#4ade80" : "#fb923c" }}>
+                            {dEntrate >= 0 ? "+" : ""}{euro(dEntrate)}
+                          </td>
+                          <td style={{ padding: "6px 6px", textAlign: "right", fontWeight: 600,
+                                       color: p.conguaglio >= 0 ? "#34d399" : "#fb923c" }}>
+                            {p.conguaglio >= 0 ? "+" : ""}{euro(p.conguaglio)}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                  <tr><td colSpan={5} style={{ padding: "2px 0" }} /></tr>
+                  {totals.map(p => {
+                    const dSpese   = p.dareTeorico  - p.pagato;
+                    const dEntrate = p.avereTeorico - p.incassato;
+                    return (
+                      <tr key={"tot_" + p.nome} style={{ borderTop: "2px solid var(--border)", background: "var(--bg3)" }}>
+                        <td style={{ padding: "7px 6px", fontSize: 10, color: "var(--text2)", fontStyle: "italic" }}>Totale</td>
+                        <td style={{ padding: "7px 6px", fontWeight: 700 }}>{p.nome}</td>
+                        <td style={{ padding: "7px 6px", textAlign: "right", fontWeight: 700,
+                                     color: dSpese >= 0 ? "#f87171" : "#34d399" }}>
+                          {dSpese >= 0 ? "+" : ""}{euro(dSpese)}
                         </td>
-                        <td style={{ padding: "6px 6px", fontWeight: 500 }}>{p.nome}</td>
-                        <td style={{ padding: "6px 6px", textAlign: "right", color: "#f87171" }}>{euro(p.dareTeorico)}</td>
-                        <td style={{ padding: "6px 6px", textAlign: "right", color: "#4ade80" }}>{euro(p.incassato)}</td>
-                        <td style={{ padding: "6px 6px", textAlign: "right", fontWeight: 600,
+                        <td style={{ padding: "7px 6px", textAlign: "right", fontWeight: 700,
+                                     color: dEntrate >= 0 ? "#4ade80" : "#fb923c" }}>
+                          {dEntrate >= 0 ? "+" : ""}{euro(dEntrate)}
+                        </td>
+                        <td style={{ padding: "7px 6px", textAlign: "right", fontWeight: 700, fontSize: 13,
                                      color: p.conguaglio >= 0 ? "#34d399" : "#fb923c" }}>
                           {p.conguaglio >= 0 ? "+" : ""}{euro(p.conguaglio)}
                         </td>
                       </tr>
-                    ))
-                  )}
-                  {/* Riga separatore */}
-                  <tr><td colSpan={5} style={{ padding: "2px 0" }} /></tr>
-                  {/* Totali per proprietario */}
-                  {totals.map(p => (
-                    <tr key={"tot_" + p.nome} style={{
-                      borderTop: "2px solid var(--border)",
-                      background: "var(--bg3)",
-                    }}>
-                      <td style={{ padding: "7px 6px", fontSize: 10, color: "var(--text2)", fontStyle: "italic" }}>
-                        Totale
-                      </td>
-                      <td style={{ padding: "7px 6px", fontWeight: 700 }}>{p.nome}</td>
-                      <td style={{ padding: "7px 6px", textAlign: "right", color: "#f87171", fontWeight: 700 }}>
-                        {euro(p.dareTeorico)}
-                      </td>
-                      <td style={{ padding: "7px 6px", textAlign: "right", color: "#4ade80", fontWeight: 700 }}>
-                        {euro(p.incassato)}
-                      </td>
-                      <td style={{ padding: "7px 6px", textAlign: "right", fontWeight: 700, fontSize: 13,
-                                   color: p.conguaglio >= 0 ? "#34d399" : "#fb923c" }}>
-                        {p.conguaglio >= 0 ? "+" : ""}{euro(p.conguaglio)}
-                      </td>
-                    </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             );
@@ -263,6 +282,138 @@ export default function Dashboard({ setTab }) {
           )}
         </div>
       </div>
+
+      {/* ── RIEPILOGO PROPRIETARI CASSA ── */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <p style={{ fontWeight: 700, marginBottom: 12, fontSize: 15 }}>
+          Riepilogo Proprietari
+          <span style={{ fontSize: 10, fontWeight: 400, color: "var(--text2)", marginLeft: 8 }}>
+            uscite/entrate (Cassa)
+          </span>
+        </p>
+        {dashProp ? (() => {
+          // Totali cassa per proprietario su tutti gli appartamenti
+          const totCassa = {};
+          for (const a of dashProp.perAppartamento) {
+            for (const p of a.perProprietario) {
+              if (!totCassa[p.id]) totCassa[p.id] = { nome: p.nome, pagato: 0, incassato: 0 };
+              totCassa[p.id].pagato    += p.pagato;
+              totCassa[p.id].incassato += p.incassato;
+            }
+          }
+          const totals = Object.values(totCassa);
+          const thP = { padding: "4px 6px", fontWeight: 600 };
+          return (
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead>
+                <tr style={{ borderBottom: "2px solid var(--bg3)" }}>
+                  <th style={{ ...thP, textAlign: "left",  color: "var(--text2)" }}>Appartamento</th>
+                  <th style={{ ...thP, textAlign: "left",  color: "var(--text2)" }}>Proprietario</th>
+                  <th style={{ ...thP, textAlign: "right", color: "#f87171"  }} title="Spese effettivamente pagate">Spese Pagate</th>
+                  <th style={{ ...thP, textAlign: "right", color: "#4ade80"  }} title="Versamenti effettivamente incassati">Entrate Incassate</th>
+                  <th style={{ ...thP, textAlign: "right", color: "#34d399"  }} title="Entrate reali − Spese reali">Saldo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dashProp.perAppartamento.flatMap(a =>
+                  a.perProprietario.map((p, i) => {
+                    const saldo = p.incassato - p.pagato;
+                    return (
+                      <tr key={p.id + a.id + "_c"} style={{ borderBottom: "1px solid var(--bg3)" }}>
+                        <td style={{ padding: "6px 6px", fontSize: 10, color: "var(--text2)" }}>
+                          {i === 0 ? a.nome : ""}
+                        </td>
+                        <td style={{ padding: "6px 6px", fontWeight: 500 }}>{p.nome}</td>
+                        <td style={{ padding: "6px 6px", textAlign: "right", color: "#f87171" }}>{euro(p.pagato)}</td>
+                        <td style={{ padding: "6px 6px", textAlign: "right", color: "#4ade80" }}>{euro(p.incassato)}</td>
+                        <td style={{ padding: "6px 6px", textAlign: "right", fontWeight: 600,
+                                     color: saldo >= 0 ? "#34d399" : "#fb923c" }}>
+                          {saldo >= 0 ? "+" : ""}{euro(saldo)}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+                <tr><td colSpan={5} style={{ padding: "2px 0" }} /></tr>
+                {totals.map(p => {
+                  const saldo = p.incassato - p.pagato;
+                  return (
+                    <tr key={"totc_" + p.nome} style={{ borderTop: "2px solid var(--border)", background: "var(--bg3)" }}>
+                      <td style={{ padding: "7px 6px", fontSize: 10, color: "var(--text2)", fontStyle: "italic" }}>Totale</td>
+                      <td style={{ padding: "7px 6px", fontWeight: 700 }}>{p.nome}</td>
+                      <td style={{ padding: "7px 6px", textAlign: "right", color: "#f87171", fontWeight: 700 }}>{euro(p.pagato)}</td>
+                      <td style={{ padding: "7px 6px", textAlign: "right", color: "#4ade80", fontWeight: 700 }}>{euro(p.incassato)}</td>
+                      <td style={{ padding: "7px 6px", textAlign: "right", fontWeight: 700, fontSize: 13,
+                                   color: saldo >= 0 ? "#34d399" : "#fb923c" }}>
+                        {saldo >= 0 ? "+" : ""}{euro(saldo)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          );
+        })() : (
+          <p style={{ color: "var(--text2)", fontSize: 12 }}>Caricamento…</p>
+        )}
+      </div>
+
+      {/* ── SALDO GLOBALE PER APPARTAMENTO / INQUILINO ── */}
+      {dash && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <p style={{ fontWeight: 700, marginBottom: 12, fontSize: 15 }}>
+            Saldo Globale · Appartamenti / Inquilini
+            <span style={{ fontSize: 10, fontWeight: 400, color: "var(--text2)", marginLeft: 8 }}>
+              dal primo inquilino ad oggi
+            </span>
+          </p>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <thead>
+              <tr style={{ borderBottom: "2px solid var(--bg3)" }}>
+                <th style={{ textAlign: "left",  padding: "4px 6px", color: "var(--text2)", fontWeight: 600 }}>Appartamento</th>
+                <th style={{ textAlign: "left",  padding: "4px 6px", color: "var(--text2)", fontWeight: 600 }}>Inquilino</th>
+                <th style={{ textAlign: "right", padding: "4px 6px", color: "#a5b4fc",      fontWeight: 600 }} title="Spese ripartite">Spese</th>
+                <th style={{ textAlign: "right", padding: "4px 6px", color: "#4ade80",      fontWeight: 600 }} title="Versamenti effettivi">Versato</th>
+                <th style={{ textAlign: "right", padding: "4px 6px", color: "#fbbf24",      fontWeight: 600 }} title="Quota affitto maturata">Affitto</th>
+                <th style={{ textAlign: "right", padding: "4px 6px", color: "var(--text2)", fontWeight: 600 }}>Saldo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {dash.perAppartamento.flatMap(a =>
+                (a.perInquilino || []).filter(c => c.saldo !== 0).map((c, i) => (
+                  <tr key={c.id} style={{ borderBottom: "1px solid var(--bg3)" }}>
+                    <td style={{ padding: "6px 6px", fontSize: 10, color: "var(--text2)" }}>
+                      {i === 0 ? a.nome : ""}
+                    </td>
+                    <td style={{ padding: "6px 6px", fontWeight: 500 }}>{c.nome}</td>
+                    <td style={{ padding: "6px 6px", textAlign: "right", color: "#a5b4fc" }}>{euro(c.totaleSpese)}</td>
+                    <td style={{ padding: "6px 6px", textAlign: "right", color: "#4ade80" }}>{euro(c.totaleVersato)}</td>
+                    <td style={{ padding: "6px 6px", textAlign: "right", color: "#fbbf24" }}>{euro(c.totaleAffitto)}</td>
+                    <td style={{ padding: "6px 6px", textAlign: "right", fontWeight: 700,
+                                 color: c.saldo >= 0 ? "#4ade80" : "#f87171" }}>
+                      {c.saldo >= 0 ? "+" : ""}{euro(c.saldo)}
+                    </td>
+                  </tr>
+                ))
+              )}
+              {/* Riga totale per appartamento */}
+              {dash.perAppartamento.map(a => (
+                <tr key={"tot_" + a.id} style={{ borderTop: "2px solid var(--border)", background: "var(--bg3)" }}>
+                  <td style={{ padding: "7px 6px", fontWeight: 700 }}>{a.nome}</td>
+                  <td style={{ padding: "7px 6px", fontSize: 10, color: "var(--text2)", fontStyle: "italic" }}>Totale</td>
+                  <td style={{ padding: "7px 6px", textAlign: "right", color: "#a5b4fc", fontWeight: 700 }}>{euro(a.totaleSpese)}</td>
+                  <td style={{ padding: "7px 6px", textAlign: "right", color: "#4ade80", fontWeight: 700 }}>{euro(a.totaleVersamenti)}</td>
+                  <td style={{ padding: "7px 6px", textAlign: "right", color: "#fbbf24", fontWeight: 700 }}>{euro(a.totaleAffitto)}</td>
+                  <td style={{ padding: "7px 6px", textAlign: "right", fontWeight: 700, fontSize: 13,
+                               color: a.saldo >= 0 ? "#4ade80" : "#f87171" }}>
+                    {a.saldo >= 0 ? "+" : ""}{euro(a.saldo)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* ── DOCUMENTI RECENTI ── */}
       <div className="card" style={{ marginBottom: 16 }}>

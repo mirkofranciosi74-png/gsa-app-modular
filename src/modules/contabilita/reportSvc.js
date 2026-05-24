@@ -49,6 +49,8 @@ function _vm({ params, datiPerApp }) {
       totaliAvereTeorico,
       totaliPagato,
       totaliIncassato,
+      totaliDareTeoricoProp = {},
+      totaliPagatoProp      = {},
     } = grigliaProp;
 
     if (!riDoc.length && !comps.length) continue;
@@ -83,22 +85,24 @@ function _vm({ params, datiPerApp }) {
     });
 
     const proprietari = props.map(p => {
-      const pid  = p.proprietario_id;
-      const cong = (totaliPagato[pid]  || 0) - (totaliIncassato[pid] || 0)
-                 - (totaliDareTeorico[pid] || 0) + (totaliAvereTeorico[pid] || 0);
+      const pid      = p.proprietario_id;
+      const dareTot  = (totaliDareTeorico[pid] || 0) + (totaliDareTeoricoProp[pid] || 0);
+      const pagatoTot = (totaliPagato[pid] || 0) + (totaliPagatoProp[pid] || 0);
+      const cong = pagatoTot - (totaliIncassato[pid] || 0)
+                 - dareTot + (totaliAvereTeorico[pid] || 0);
       return {
         nome:         `${p.proprietario_nome} ${p.proprietario_cognome || ""}`.trim(),
-        dareTeorico:  totaliDareTeorico[pid]  || 0,
+        dareTeorico:  dareTot,
         avereTeorico: totaliAvereTeorico[pid] || 0,
-        pagato:       totaliPagato[pid]       || 0,
-        incassato:    totaliIncassato[pid]     || 0,
-        cashFlow:    (totaliIncassato[pid] || 0) - (totaliPagato[pid] || 0),
+        pagato:       pagatoTot,
+        incassato:    totaliIncassato[pid]    || 0,
+        cashFlow:    (totaliIncassato[pid] || 0) - pagatoTot,
         conguaglio:   cong,
       };
     });
 
     const totIncassato  = props.reduce((s, p) => s + (totaliIncassato[p.proprietario_id] || 0), 0);
-    const totPagato     = props.reduce((s, p) => s + (totaliPagato[p.proprietario_id]   || 0), 0);
+    const totPagato     = props.reduce((s, p) => s + (totaliPagato[p.proprietario_id] || 0) + (totaliPagatoProp[p.proprietario_id] || 0), 0);
     const cashFlowReale = totIncassato - totPagato;
 
     sezioni.push({

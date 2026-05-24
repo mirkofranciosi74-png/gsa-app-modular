@@ -64,7 +64,10 @@ export async function stats() {
        COUNT(*) FILTER (WHERE stato = 'da_verificare') AS da_verificare,
        COUNT(*) FILTER (WHERE stato = 'errore')        AS errori,
        COUNT(*) FILTER (WHERE stato = 'duplicato')     AS duplicati,
-       COALESCE(SUM(importo) FILTER (WHERE stato = 'elaborato'), 0) AS totale_spese
+       COALESCE(SUM(importo) FILTER (WHERE stato = 'elaborato'), 0) AS totale_spese,
+       COUNT(*)                                        AS n_spese_inquilini,
+       (SELECT COUNT(*) FROM spese_proprietari_allegati) AS n_allegati_spese_prop,
+       (SELECT COUNT(*) FROM archivio_documenti)          AS n_archivio
      FROM documenti`
   );
   return rows[0];

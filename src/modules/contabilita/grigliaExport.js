@@ -287,8 +287,10 @@ function _buildSheetInquilini(wb, dati, periodoDA, periodoA, sintetico = false) 
 // ─────────────────────────────────────────────────────────────────────────────
 function _buildSheetProprietari(wb, datiProp, periodoDA, periodoA) {
   const { props, righeDocumenti, righeMovimenti,
+          righeSpeseProp,
           totaliDareTeorico, totaliAvereTeorico,
-          totaliPagato, totaliIncassato } = datiProp;
+          totaliPagato, totaliIncassato,
+          totaliDareTeoricoProp, totaliPagatoProp } = datiProp;
 
   if (!props || props.length === 0) return;
 
@@ -298,12 +300,13 @@ function _buildSheetProprietari(wb, datiProp, periodoDA, periodoA) {
   });
 
   const C = {
-    headerBg:  "1A3A5C", headerFg:  "FFFFFF",
-    speseBg:   "C0392B", speseLight:"FDECEA",
-    versatoBg: "1A7A3C", versatoLight:"E6F9EE",
-    congBg:    "1A3A5C",
-    totBg:     "2C3E50", totFg:     "ECF0F1",
-    subPagBg:  "F8F8FF",
+    headerBg:   "1A3A5C", headerFg:   "FFFFFF",
+    speseBg:    "C0392B", speseLight: "FDECEA",
+    spesePBg:   "C2540A", spesePLight:"FEF3EC",
+    versatoBg:  "1A7A3C", versatoLight:"E6F9EE",
+    congBg:     "1A3A5C",
+    totBg:      "2C3E50", totFg:      "ECF0F1",
+    subPagBg:   "F8F8FF",
   };
 
   const nCols = 2 + props.length;
@@ -399,7 +402,7 @@ function _buildSheetProprietari(wb, datiProp, periodoDA, periodoA) {
     row++;
   };
 
-  // ── SPESE ──────────────────────────────────────────────────────────────────
+  // ── SPESE documenti ────────────────────────────────────────────────────────
   addSep("▼  SPESE — quota teorica a carico dei proprietari", C.speseBg);
   if (righeDocumenti.length === 0) {
     ws.mergeCells(row, 1, row, nCols);
@@ -422,8 +425,37 @@ function _buildSheetProprietari(wb, datiProp, periodoDA, periodoA) {
       addSubRow(subLabel, r.importo, pagQuote, C.subPagBg, "A5B4FC");
     }
   }
-  addTotRow("Totale dare teorico", totaliDareTeorico, "C0392B", C.totBg);
-  addTotRow("Pagato effettivamente", totaliPagato, "A5B4FC", C.totBg);
+  addTotRow("Totale dare teorico (spese doc.)", totaliDareTeorico, "C0392B", C.totBg);
+  addTotRow("Pagato effettivamente (spese doc.)", totaliPagato, "A5B4FC", C.totBg);
+
+  // ── SPESE PROPRIETARI ──────────────────────────────────────────────────────
+  const _righeSpeseProp = Array.isArray(righeSpeseProp) ? righeSpeseProp : [];
+  addSep("▼  SPESE PROPRIETARI — quote teoriche per proprietario", C.spesePBg);
+  if (_righeSpeseProp.length === 0) {
+    ws.mergeCells(row, 1, row, nCols);
+    ws.getCell(row, 1).value = "Nessuna spesa proprietari nel periodo";
+    ws.getCell(row, 1).font = fnt({ color: { argb: "888888" } }); row++;
+  } else {
+    for (const r of _righeSpeseProp) {
+      const label = `${r.tipo_descrizione || r.descrizione || "Spesa proprietari"} ${ym2label(r.periodo_da)}` +
+                    (r.periodo_a && r.periodo_a !== r.periodo_da ? ` → ${ym2label(r.periodo_a)}` : "");
+      addDataRow(label, r.importo, r.quote, C.spesePLight);
+
+      // sub-riga: chi ha pagato effettivamente
+      const pagante  = props.find(p => p.proprietario_id === r.pagato_da_proprietario_id);
+      const subLabel = pagante
+        ? `↳ Pagato da: ${pagante.proprietario_nome} ${pagante.proprietario_cognome || ""}`.trim()
+        : "↳ Pagante non registrato";
+      const pagQuote = {};
+      for (const p of props) pagQuote[p.proprietario_id] = 0;
+      if (r.pagato_da_proprietario_id) pagQuote[r.pagato_da_proprietario_id] = r.importo;
+      addSubRow(subLabel, r.importo, pagQuote, C.subPagBg, "FB923C");
+    }
+  }
+  const _totaliDareTeoricoProp = totaliDareTeoricoProp || {};
+  const _totaliPagatoProp      = totaliPagatoProp      || {};
+  addTotRow("Totale dare teorico (sp. prop.)", _totaliDareTeoricoProp, "C2540A", C.totBg);
+  addTotRow("Pagato effettivamente (sp. prop.)", _totaliPagatoProp, "FB923C", C.totBg);
 
   // ── VERSAMENTI ─────────────────────────────────────────────────────────────
   addSep("▼  VERSAMENTI — incassato per proprietario", C.versatoBg);
@@ -446,7 +478,7 @@ function _buildSheetProprietari(wb, datiProp, periodoDA, periodoA) {
   // ── CONGUAGLIO ─────────────────────────────────────────────────────────────
   ws.getRow(row).height = 26;
   const cCong = ws.getCell(row, 1);
-  cCong.value     = "Conguaglio finale  (Pagato − Incassato − Dare teorico + Avere teorico)";
+  cCong.value     = "Conguaglio finale  (Pagato doc + Pagato sp.prop − Incassato − Dare teorico doc − Dare teorico sp.prop + Avere teorico)";
   cCong.font      = fnt({ bold: true, size: 11, color: { argb: "FFFFFF" } });
   cCong.fill      = fill(C.congBg);
   cCong.alignment = al("left");
@@ -455,8 +487,10 @@ function _buildSheetProprietari(wb, datiProp, periodoDA, periodoA) {
   const conguagli = {};
   for (const p of props) {
     const pid = p.proprietario_id;
-    conguagli[pid] = (totaliPagato[pid] || 0) - (totaliIncassato[pid] || 0)
-                   - (totaliDareTeorico[pid] || 0) + (totaliAvereTeorico[pid] || 0);
+    conguagli[pid] = (totaliPagato[pid] || 0) + (_totaliPagatoProp[pid] || 0)
+                   - (totaliIncassato[pid] || 0)
+                   - (totaliDareTeorico[pid] || 0) - (_totaliDareTeoricoProp[pid] || 0)
+                   + (totaliAvereTeorico[pid] || 0);
   }
   const totCong = props.reduce((s, p) => s + (conguagli[p.proprietario_id] || 0), 0);
   const cT = ws.getCell(row, 2);
