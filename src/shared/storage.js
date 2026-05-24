@@ -92,3 +92,23 @@ export function eliminaArchivio(docId, ext) {
   unlinkSync(filePath);
   return true;
 }
+
+// ─── Allegati spese proprietari (stesso bucket pdf, nome {id}{ext}) ──────────
+export function salvaAllegato(id, ext, buffer) {
+  const filePath = join(BASE_PATH, `${id}${ext}`);
+  writeFileSync(filePath, buffer);
+  return filePath;
+}
+
+export function leggiAllegato(id, ext) {
+  const filePath = join(BASE_PATH, `${id}${ext}`);
+  if (!existsSync(filePath)) return null;
+  return readFileSync(filePath);
+}
+
+export function eliminaAllegato(id, ext) {
+  const filePath = join(BASE_PATH, `${id}${ext}`);
+  if (!existsSync(filePath)) return false;
+  unlinkSync(filePath);
+  return true;
+}

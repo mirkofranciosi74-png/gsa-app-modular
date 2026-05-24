@@ -38,6 +38,44 @@ documentiRouter.get("/:id/pdf",   h(async (q, r) => {
   r.send(buf);
 }));
 
+documentiRouter.post("/check-hash", up.single("file"), h(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "Nessun file" });
+  const hash = crypto.createHash("sha256").update(req.file.buffer).digest("hex");
+  const { query } = await import("../../shared/db/pool.js");
+
+  const dupDocumenti = await query(
+    `SELECT d.id, d.nome_file, d.importo, d.data_caricamento::text AS data,
+            d.fornitore, d.note_ai AS note,
+            ts.descrizione AS tipo_spesa,
+            a.nome AS appartamento_nome
+     FROM documenti d
+     JOIN appartamenti a ON a.id = d.appartamento_id
+     LEFT JOIN tipi_spesa ts ON ts.id = d.tipo_spesa_id
+     WHERE d.file_hash = $1
+     LIMIT 3`,
+    [hash]
+  );
+
+  const dupAllegati = await query(
+    `SELECT sa.id, sa.nome_file, sa.spesa_id,
+            sp.importo, sp.data_pagamento,
+            sp.fornitore, sp.mese_competenza,
+            ts.descrizione AS tipo_spesa,
+            a.nome AS appartamento_nome,
+            pr.nome AS proprietario_nome, pr.cognome AS proprietario_cognome
+     FROM spese_proprietari_allegati sa
+     JOIN spese_proprietari sp ON sp.id = sa.spesa_id
+     JOIN appartamenti      a  ON a.id  = sp.appartamento_id
+     LEFT JOIN tipi_spesa   ts ON ts.id = sp.tipo_spesa_id
+     LEFT JOIN proprietari  pr ON pr.id = sp.proprietario_id
+     WHERE sa.file_hash = $1
+     LIMIT 3`,
+    [hash]
+  );
+
+  res.json({ hash, duplicati_documenti: dupDocumenti, duplicati_allegati: dupAllegati });
+}));
+
 documentiRouter.post("/extract", up.single("file"), h(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "Nessun file" });
 
@@ -86,6 +124,12 @@ documentiRouter.post("/:id/pdf", up.single("file"), h(async (req, res) => {
   await docRepo.updateFileHash(req.params.id, hash);
 
   res.json({ ok: true, pdf_disponibile: true, duplicato_di: dupId || null });
+}));
+
+documentiRouter.delete("/:id/pdf", h(async (req, res) => {
+  eliminaPdf(req.params.id);
+  await docRepo.updateFileHash(req.params.id, null);
+  res.json({ ok: true, pdf_disponibile: false });
 }));
 
 documentiRouter.post("/",    h(async (q, r) => r.status(201).json(await docRepo.create(q.body))));

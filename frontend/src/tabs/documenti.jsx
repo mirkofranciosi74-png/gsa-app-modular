@@ -1,7 +1,70 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { appartamentiApi, documentiApi, tipiSpesaApi, proprietariApi, associazioniApi, archivioApi } from "../api.js";
 import { Btn, StatoBadge, Confirm, Field, SectionHeader, Modal } from "../components/ui.jsx";
-import { euro, mesL, uid } from "../utils/formatters.js";
+import { euro, mesL, uid, toITdate } from "../utils/formatters.js";
+
+// ── Modal intercetta duplicati hash ───────────────────────────────────────────
+const FLBL = { fontSize: 10, color: "var(--text2)", fontWeight: 700,
+               textTransform: "uppercase", letterSpacing: 1, marginBottom: 2 };
+
+function HashDupInterceptModal({ items, onProceed, onCancel }) {
+  return (
+    <Modal title="" onClose={onCancel} width={620}
+      footer={<>
+        <Btn variant="ghost" onClick={onCancel}>Annulla</Btn>
+        <div style={{ flex: 1 }} />
+        <Btn variant="danger" onClick={onProceed}>
+          <i className="ti ti-alert-triangle" /> Procedi comunque
+        </Btn>
+      </>}
+    >
+      <div style={{ textAlign: "center", marginBottom: 20 }}>
+        <div style={{ width: 56, height: 56, borderRadius: "50%",
+                      background: "rgba(239,68,68,0.12)",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      margin: "0 auto 12px" }}>
+          <i className="ti ti-fingerprint" style={{ fontSize: 28, color: "var(--red)" }} />
+        </div>
+        <div style={{ fontWeight: 700, fontSize: 17, color: "var(--red)", marginBottom: 4 }}>
+          {items.length === 1 ? "File già presente" : `${items.length} file già presenti`}
+        </div>
+        <div style={{ fontSize: 13, color: "var(--text2)" }}>
+          {items.length === 1
+            ? <><strong>{items[0].file.name}</strong> è identico a un documento già caricato</>
+            : "I file seguenti risultano già caricati in precedenza"}
+        </div>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        {items.map(({ file, warning }, i) => {
+          const dups = [...(warning.duplicati_documenti || []), ...(warning.duplicati_allegati || [])];
+          return (
+            <div key={i} style={{ borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)",
+                                   background: "rgba(239,68,68,0.04)", padding: "12px 14px" }}>
+              {items.length > 1 && (
+                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>{file.name}</div>
+              )}
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {dups.map((d, j) => (
+                  <div key={j} style={{ fontSize: 12, display: "grid",
+                                         gridTemplateColumns: "1fr 1fr", gap: "4px 12px" }}>
+                    {d.appartamento_nome && <div><div style={FLBL}>Appartamento</div>{d.appartamento_nome}</div>}
+                    {d.tipo_spesa       && <div><div style={FLBL}>Tipo</div>{d.tipo_spesa}</div>}
+                    {d.proprietario_nome && <div><div style={FLBL}>Proprietario</div>{d.proprietario_nome} {d.proprietario_cognome || ""}</div>}
+                    {d.fornitore        && <div><div style={FLBL}>Fornitore</div>{d.fornitore}</div>}
+                    {d.importo != null  && <div><div style={FLBL}>Importo</div>{euro(d.importo)}</div>}
+                    {(d.data || d.data_pagamento) && <div><div style={FLBL}>Data</div>{toITdate(d.data || d.data_pagamento)}</div>}
+                    {d.nome_file        && <div style={{ gridColumn: "1/-1" }}><div style={FLBL}>File</div>{d.nome_file}</div>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Modal>
+  );
+}
 
 // ── Componente header colonna ordinabile ──────────────────────────────────────
 function SortTh({ col, label, sort, setSort, style }) {
@@ -55,6 +118,12 @@ export function Documenti() {
   const [queue,    setQueue] = useState([]);
   const [buchi,    setBuchi] = useState([]);
   const [buchiOpen,setBuchiOpen] = useState(true);
+  const [bucheIgnorate, setBucheIgnorate] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem("gsa_buchi_ignorati") || "[]")); }
+    catch { return new Set(); }
+  });
+
+  const [hashDupIntercept, setHashDupIntercept] = useState(null); // { items, onProceed }
 
   const processingRef = useRef(false);
   const fileRef       = useRef();
@@ -111,8 +180,8 @@ export function Documenti() {
     if (next) setEdit({ doc: next.doc, pdfUrl: next.pdfUrl, queueId: next.id });
   }, []);
 
-  // ── Gestione upload file ───────────────────────────────────────────────────
-  async function handleFiles(files) {
+  // ── Avvia elaborazione OCR ─────────────────────────────────────────────────
+  function avviaElaborazione(files) {
     if (!files.length) return;
     const nuovi = files.map(f => ({ id: uid(), nomeFile: f.name, stato: "attesa", doc: null, pdfUrl: null, _file: f }));
     setQueue(prev => {
@@ -121,6 +190,60 @@ export function Documenti() {
       return ag;
     });
   }
+
+  // ── Controlla hash duplicato, poi procede ─────────────────────────────────
+  async function checkHashAndIntercept(files, onNoDup, onProceed) {
+    const duplicati = [], puliti = [];
+    for (const f of files) {
+      try {
+        const r = await documentiApi.checkHash(f);
+        if (r.duplicati_documenti?.length || r.duplicati_allegati?.length) {
+          duplicati.push({ file: f, warning: r });
+        } else {
+          puliti.push(f);
+        }
+      } catch { puliti.push(f); }
+    }
+    if (puliti.length)    onNoDup(puliti);
+    if (duplicati.length) setHashDupIntercept({ items: duplicati, onProceed: () => onProceed(duplicati.map(d => d.file)) });
+  }
+
+  // ── Gestione upload file (pulsante Carica PDF principale) ─────────────────
+  async function handleFiles(files) {
+    if (!files.length) return;
+    checkHashAndIntercept(files, avviaElaborazione, avviaElaborazione);
+  }
+
+  // ── Upload PDF su spesa esistente (pulsante riga tabella) ─────────────────
+  async function handleRowPdfUpload(docId, file) {
+    const doUpload = async () => {
+      try { await documentiApi.uploadPdf(docId, file); load(); }
+      catch (err) { alert("Errore upload: " + err.message); }
+    };
+    checkHashAndIntercept([file], () => doUpload(), () => doUpload());
+  }
+
+  // ── Gestione buchi ignorati (localStorage) ───────────────────────────────
+  function bucoKey(b) {
+    return `${b.appartamento_id}__${b.tipo_spesa_id}__${b.gaps.join(',')}`;
+  }
+
+  function ignoraBuco(b) {
+    setBucheIgnorate(prev => {
+      const next = new Set(prev);
+      next.add(bucoKey(b));
+      localStorage.setItem("gsa_buchi_ignorati", JSON.stringify([...next]));
+      return next;
+    });
+  }
+
+  function ripristinaBuchi() {
+    setBucheIgnorate(new Set());
+    localStorage.removeItem("gsa_buchi_ignorati");
+  }
+
+  const buchiVisibili = buchi.filter(b => !bucheIgnorate.has(bucoKey(b)));
+  const buchiNascosti = buchi.length - buchiVisibili.length;
 
   async function elabora(codaInit, ids) {
     if (processingRef.current) return;
@@ -318,59 +441,87 @@ export function Documenti() {
       )}
 
       {/* Buchi utenze */}
-      {buchi.length > 0 && (
+      {(buchiVisibili.length > 0 || buchiNascosti > 0) && (
         <div style={{ marginBottom: 14, border: "1px solid #b45309", borderRadius: 8, overflow: "hidden" }}>
-          <div
-            onClick={() => setBuchiOpen(o => !o)}
-            style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px",
-                     background: "rgba(180,83,9,0.12)", cursor: "pointer", userSelect: "none" }}
-          >
-            <i className="ti ti-alert-triangle" style={{ color: "#f59e0b", fontSize: 18, flexShrink: 0 }} />
-            <span style={{ fontWeight: 700, fontSize: 13, color: "#f59e0b" }}>
-              Buchi utenze rilevati — {buchi.length} combinazion{buchi.length > 1 ? "i" : "e"} con mesi mancanti
-            </span>
-            <span style={{ fontSize: 11, color: "var(--text2)", marginLeft: 4 }}>
-              {filtro.periodoDA || filtro.periodoA
-                ? `(periodo ${filtro.periodoDA ? mesL(filtro.periodoDA) : "…"} → ${filtro.periodoA ? mesL(filtro.periodoA) : "…"})`
-                : "(tutti i periodi)"}
-            </span>
-            <i className={`ti ${buchiOpen ? "ti-chevron-up" : "ti-chevron-down"}`}
-               style={{ marginLeft: "auto", color: "var(--text2)" }} />
-          </div>
-          {buchiOpen && (
-            <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
-              {Object.entries(
-                buchi.reduce((acc, b) => {
-                  const k = b.appartamento_nome;
-                  if (!acc[k]) acc[k] = [];
-                  acc[k].push(b);
-                  return acc;
-                }, {})
-              ).map(([appNome, items]) => (
-                <div key={appNome}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text1)",
-                                marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                    {appNome}
-                  </div>
-                  {items.map(b => (
-                    <div key={`${b.appartamento_id}_${b.tipo_spesa_id}`}
-                         style={{ display: "flex", alignItems: "baseline", gap: 8,
-                                  padding: "4px 0", borderBottom: "1px solid var(--bg3)", flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 13, fontWeight: 600, minWidth: 50, color: "#f59e0b" }}>
-                        {b.tipo_descrizione}
-                      </span>
-                      <span style={{ fontSize: 11, color: "var(--text2)" }}>
-                        copertura {mesL(b.periodoMin)} → {mesL(b.periodoMax)}
-                      </span>
-                      <span style={{ fontSize: 11, color: "var(--red)", fontWeight: 600 }}>
-                        {b.gaps.length === 1
-                          ? `Mancante: ${mesL(b.gaps[0])}`
-                          : `Mancanti (${b.gaps.length}): ${b.gaps.map(mesL).join(", ")}`}
-                      </span>
+          {buchiVisibili.length > 0 && (<>
+            <div
+              onClick={() => setBuchiOpen(o => !o)}
+              style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px",
+                       background: "rgba(180,83,9,0.12)", cursor: "pointer", userSelect: "none" }}
+            >
+              <i className="ti ti-alert-triangle" style={{ color: "#f59e0b", fontSize: 18, flexShrink: 0 }} />
+              <span style={{ fontWeight: 700, fontSize: 13, color: "#f59e0b" }}>
+                Buchi utenze rilevati — {buchiVisibili.length} combinazion{buchiVisibili.length > 1 ? "i" : "e"} con mesi mancanti
+              </span>
+              <span style={{ fontSize: 11, color: "var(--text2)", marginLeft: 4 }}>
+                {filtro.periodoDA || filtro.periodoA
+                  ? `(periodo ${filtro.periodoDA ? mesL(filtro.periodoDA) : "…"} → ${filtro.periodoA ? mesL(filtro.periodoA) : "…"})`
+                  : "(tutti i periodi)"}
+              </span>
+              <i className={`ti ${buchiOpen ? "ti-chevron-up" : "ti-chevron-down"}`}
+                 style={{ marginLeft: "auto", color: "var(--text2)" }} />
+            </div>
+            {buchiOpen && (
+              <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
+                {Object.entries(
+                  buchiVisibili.reduce((acc, b) => {
+                    const k = b.appartamento_nome;
+                    if (!acc[k]) acc[k] = [];
+                    acc[k].push(b);
+                    return acc;
+                  }, {})
+                ).map(([appNome, items]) => (
+                  <div key={appNome}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text1)",
+                                  marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                      {appNome}
                     </div>
-                  ))}
-                </div>
-              ))}
+                    {items.map(b => (
+                      <div key={`${b.appartamento_id}_${b.tipo_spesa_id}`}
+                           style={{ display: "flex", alignItems: "center", gap: 8,
+                                    padding: "4px 0", borderBottom: "1px solid var(--bg3)", flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, minWidth: 50, color: "#f59e0b" }}>
+                          {b.tipo_descrizione}
+                        </span>
+                        <span style={{ fontSize: 11, color: "var(--text2)" }}>
+                          copertura {mesL(b.periodoMin)} → {mesL(b.periodoMax)}
+                        </span>
+                        <span style={{ fontSize: 11, color: "var(--red)", fontWeight: 600 }}>
+                          {b.gaps.length === 1
+                            ? `Mancante: ${mesL(b.gaps[0])}`
+                            : `Mancanti (${b.gaps.length}): ${b.gaps.map(mesL).join(", ")}`}
+                        </span>
+                        <button
+                          title="Ignora questo avviso"
+                          onClick={e => { e.stopPropagation(); ignoraBuco(b); }}
+                          style={{ marginLeft: "auto", background: "none", border: "none",
+                                   cursor: "pointer", color: "var(--text2)", padding: "2px 6px",
+                                   borderRadius: 4, lineHeight: 1, flexShrink: 0 }}
+                        >
+                          <i className="ti ti-x" style={{ fontSize: 13 }} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>)}
+          {buchiNascosti > 0 && (
+            <div style={{ padding: "6px 14px", background: "rgba(180,83,9,0.06)",
+                          display: "flex", alignItems: "center", gap: 6,
+                          borderTop: buchiVisibili.length > 0 ? "1px solid #b45309" : "none" }}>
+              <i className="ti ti-eye-off" style={{ fontSize: 12, color: "var(--text2)" }} />
+              <span style={{ fontSize: 11, color: "var(--text2)" }}>
+                {buchiNascosti} avviso{buchiNascosti !== 1 ? "i nascosti" : " nascosto"}
+              </span>
+              <button
+                onClick={ripristinaBuchi}
+                style={{ background: "none", border: "none", cursor: "pointer",
+                         fontSize: 11, color: "var(--accent)", padding: 0, marginLeft: 4 }}
+              >
+                Ripristina
+              </button>
             </div>
           )}
         </div>
@@ -535,17 +686,11 @@ export function Documenti() {
                                         lineHeight: 1 }}>
                           <i className="ti ti-upload" style={{ fontSize: 13 }} />
                           <input type="file" accept=".pdf" style={{ display: "none" }}
-                                 onChange={async e => {
+                                 onChange={e => {
                                    const file = e.target.files[0];
                                    if (!file) return;
                                    e.target.value = "";
-                                   try {
-                                     const r = await documentiApi.uploadPdf(d.id, file);
-                                     if (r?.duplicato_di) {
-                                       alert(`Attenzione: questo PDF è identico a un documento già presente (ID: ${r.duplicato_di.slice(0,8)}…). Il file è stato caricato ma la spesa potrebbe essere duplicata.`);
-                                     }
-                                     load();
-                                   } catch (err) { alert("Errore upload: " + err.message); }
+                                   handleRowPdfUpload(d.id, file);
                                  }} />
                         </label>
                         {/* Visualizza nel documentale se collegato */}
@@ -631,6 +776,13 @@ export function Documenti() {
         />
       )}
       {conf && <Confirm msg={conf.msg} onYes={conf.onYes} onNo={() => setConf(null)} />}
+      {hashDupIntercept && (
+        <HashDupInterceptModal
+          items={hashDupIntercept.items}
+          onProceed={() => { setHashDupIntercept(null); hashDupIntercept.onProceed(); }}
+          onCancel={() => setHashDupIntercept(null)}
+        />
+      )}
     </div>
   );
 }
@@ -766,6 +918,7 @@ function DocEditModal({ doc: initDoc, pdfUrl: initPdfUrl, apps, tipi, queueLeft 
   const [localPdfUrl,  setLocalPdf]  = useState(initPdfUrl);
   const [showPdf,      setShowPdf]   = useState(!!initPdfUrl);
   const [uploadingPdf, setUploadPdf] = useState(false);
+  const [hashDupIntercept, setHashDupIntercept] = useState(null);
   const pdfInputRef                  = useRef();
   const [proprietari,  setProp]      = useState([]);
 
@@ -773,22 +926,30 @@ function DocEditModal({ doc: initDoc, pdfUrl: initPdfUrl, apps, tipi, queueLeft 
     proprietariApi.list().then(setProp).catch(() => {});
   }, []);
 
-  async function uploadPdf(file) {
+  async function doUploadPdf(file) {
     if (!doc.id || !file) return;
     setUploadPdf(true);
     try {
-      const r = await documentiApi.uploadPdf(doc.id, file);
-      const url = URL.createObjectURL(file);
-      setLocalPdf(url);
+      await documentiApi.uploadPdf(doc.id, file);
+      setLocalPdf(URL.createObjectURL(file));
       setShowPdf(true);
-      if (r?.duplicato_di) {
-        alert(`Attenzione: questo PDF è identico a un documento già presente (ID: ${r.duplicato_di.slice(0,8)}…). La spesa potrebbe essere duplicata.`);
-      }
     } catch (e) {
       alert("Errore upload PDF: " + e.message);
     } finally {
       setUploadPdf(false);
     }
+  }
+
+  async function uploadPdf(file) {
+    if (!doc.id || !file) return;
+    try {
+      const r = await documentiApi.checkHash(file);
+      if (r.duplicati_documenti?.length || r.duplicati_allegati?.length) {
+        setHashDupIntercept({ items: [{ file, warning: r }], onProceed: () => doUploadPdf(file) });
+        return;
+      }
+    } catch {}
+    doUploadPdf(file);
   }
 
   useEffect(() => {
@@ -811,6 +972,7 @@ function DocEditModal({ doc: initDoc, pdfUrl: initPdfUrl, apps, tipi, queueLeft 
   ].filter(Boolean);
 
   return (
+    <>
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.78)", display: "flex",
                   alignItems: "center", justifyContent: "center", zIndex: 400, padding: 12 }}>
       <div style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: 12,
@@ -851,6 +1013,19 @@ function DocEditModal({ doc: initDoc, pdfUrl: initPdfUrl, apps, tipi, queueLeft 
                     ? <><i className="ti ti-loader" /> Caricamento…</>
                     : <><i className="ti ti-upload" /> {localPdfUrl ? "Sostituisci" : "Carica PDF"}</>}
                 </Btn>
+                {localPdfUrl && (
+                  <Btn variant="ghost" size="sm" title="Elimina PDF"
+                       onClick={async () => {
+                         if (!confirm("Eliminare il file PDF? L'operazione non è reversibile.")) return;
+                         try {
+                           await documentiApi.deletePdf(doc.id);
+                           setLocalPdfUrl(null);
+                           setShowPdf(false);
+                         } catch (e) { alert("Errore: " + e.message); }
+                       }}>
+                    <i className="ti ti-trash" style={{ color: "var(--red)" }} />
+                  </Btn>
+                )}
               </>
             )}
             {!localPdfUrl && !doc.id && (
@@ -985,5 +1160,13 @@ function DocEditModal({ doc: initDoc, pdfUrl: initPdfUrl, apps, tipi, queueLeft 
         </div>
       </div>
     </div>
+    {hashDupIntercept && (
+      <HashDupInterceptModal
+        items={hashDupIntercept.items}
+        onProceed={() => { setHashDupIntercept(null); hashDupIntercept.onProceed(); }}
+        onCancel={() => setHashDupIntercept(null)}
+      />
+    )}
+    </>
   );
 }
