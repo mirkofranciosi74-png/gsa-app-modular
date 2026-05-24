@@ -9,9 +9,10 @@ import { Griglia }      from "./tabs/griglia.jsx";
 import { Report }       from "./tabs/report.jsx";
 import { Documenti }    from "./tabs/documenti.jsx";
 import { Versamenti }   from "./tabs/versamenti.jsx";
-import { Proprietari }  from "./tabs/Proprietari.jsx";
-import { Documentale }  from "./tabs/Documentale.jsx";
-import { Admin }        from "./tabs/Admin.jsx";
+import { Proprietari }        from "./tabs/Proprietari.jsx";
+import { Documentale }        from "./tabs/Documentale.jsx";
+import { Admin }              from "./tabs/Admin.jsx";
+import { SpeseProprietari }   from "./tabs/SpeseProprietari.jsx";
 
 const TABS = [
   { id: "dashboard",    label: "Dashboard",       icon: "ti-layout-dashboard" },
@@ -20,8 +21,9 @@ const TABS = [
   { id: "appartamenti", label: "Appartamenti",    icon: "ti-building"         },
   { id: "proprietari",  label: "Proprietari",     icon: "ti-user-circle"      },
   { id: "componenti",   label: "Inquilini",       icon: "ti-users"            },
-  { id: "documenti",    label: "Spese",           icon: "ti-files"            },
-  { id: "movimenti",    label: "Entrate",         icon: "ti-transfer-in"      },
+  { id: "documenti",         label: "Spese Inquilini",  icon: "ti-files"            },
+  { id: "spese_proprietari", label: "Spese Proprietari", icon: "ti-receipt"         },
+  { id: "movimenti",         label: "Entrate",           icon: "ti-transfer-in"      },
   { id: "riparti",      label: "Riparti",         icon: "ti-adjustments-alt"  },
   { id: "documentale",  label: "Documentale",     icon: "ti-archive"          },
   { id: "admin",        label: "Amministrazione", icon: "ti-settings"         },
@@ -74,8 +76,9 @@ export default function App() {
         {tab === "appartamenti" && <Appartamenti />}
         {tab === "componenti"   && <Componenti />}
         {tab === "proprietari"  && <Proprietari />}
-        {tab === "documenti"    && <Documenti />}
-        {tab === "movimenti"    && <Versamenti />}
+        {tab === "documenti"         && <Documenti />}
+        {tab === "spese_proprietari" && <SpeseProprietari />}
+        {tab === "movimenti"         && <Versamenti />}
         {tab === "riparti"      && <Riparti />}
         {tab === "griglia"      && <Griglia />}
         {tab === "report"       && <Report />}

@@ -182,6 +182,48 @@ adminRouter.delete("/logs", h(async (_, res) => {
   res.status(204).end();
 }));
 
+// ── POST /api/admin/backfill-hash ─────────────────────────────────────────────
+
+adminRouter.post("/backfill-hash", h(async (_, res) => {
+  const { createHash }  = await import("crypto");
+  const { query }       = await import("../../shared/db/pool.js");
+  const { leggiPdf, leggiAllegato, leggiArchivio } = await import("../../shared/storage.js");
+
+  const docsNoHash      = await query(`SELECT id FROM documenti WHERE file_hash IS NULL`);
+  const allegatiNoHash  = await query(`SELECT id, estensione FROM spese_proprietari_allegati WHERE file_hash IS NULL`);
+  const archivioNoHash  = await query(`SELECT id, estensione FROM archivio_documenti WHERE file_hash IS NULL`);
+
+  let updatedDocs = 0, missingDocs = 0;
+  let updatedAllegati = 0, missingAllegati = 0;
+  let updatedArchivio = 0, missingArchivio = 0;
+
+  for (const d of docsNoHash) {
+    const buf = leggiPdf(d.id);
+    if (!buf) { missingDocs++; continue; }
+    const hash = createHash("sha256").update(buf).digest("hex");
+    await query(`UPDATE documenti SET file_hash = $1 WHERE id = $2`, [hash, d.id]);
+    updatedDocs++;
+  }
+
+  for (const a of allegatiNoHash) {
+    const buf = leggiAllegato(a.id, a.estensione || "");
+    if (!buf) { missingAllegati++; continue; }
+    const hash = createHash("sha256").update(buf).digest("hex");
+    await query(`UPDATE spese_proprietari_allegati SET file_hash = $1 WHERE id = $2`, [hash, a.id]);
+    updatedAllegati++;
+  }
+
+  for (const a of archivioNoHash) {
+    const buf = leggiArchivio(a.id, a.estensione || "");
+    if (!buf) { missingArchivio++; continue; }
+    const hash = createHash("md5").update(buf).digest("hex");
+    await query(`UPDATE archivio_documenti SET file_hash = $1 WHERE id = $2`, [hash, a.id]);
+    updatedArchivio++;
+  }
+
+  res.json({ updatedDocs, missingDocs, updatedAllegati, missingAllegati, updatedArchivio, missingArchivio });
+}));
+
 // ── GET /api/admin/verifica-coerenza ─────────────────────────────────────────
 
 adminRouter.get("/verifica-coerenza", h(async (_, res) => {

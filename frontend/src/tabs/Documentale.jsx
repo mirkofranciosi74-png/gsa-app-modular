@@ -5,6 +5,62 @@ import { toITdate } from "../utils/formatters.js";
 import ImportaCartellaModal from "../components/ImportaCartellaModal.jsx";
 import DocPreview           from "../components/DocPreview.jsx";
 
+// ── Modal intercetta duplicati hash archivio ──────────────────────────────────
+function ArchivioHashDupModal({ file, duplicati, onProceed, onCancel }) {
+  return (
+    <Modal title="" onClose={onCancel} width={580}
+      footer={<>
+        <Btn variant="ghost" onClick={onCancel}>Annulla</Btn>
+        <div style={{ flex: 1 }} />
+        <Btn variant="danger" onClick={onProceed}>
+          <i className="ti ti-alert-triangle" /> Procedi comunque
+        </Btn>
+      </>}
+    >
+      <div style={{ textAlign: "center", marginBottom: 20 }}>
+        <div style={{ width: 56, height: 56, borderRadius: "50%", background: "rgba(239,68,68,0.12)",
+                      display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" }}>
+          <i className="ti ti-fingerprint" style={{ fontSize: 28, color: "var(--red)" }} />
+        </div>
+        <div style={{ fontWeight: 700, fontSize: 17, color: "var(--red)", marginBottom: 4 }}>
+          File già presente nell&apos;archivio
+        </div>
+        <div style={{ fontSize: 13, color: "var(--text2)" }}>
+          <strong>{file?.name}</strong> è identico{" "}
+          {duplicati.length === 1 ? "a un documento" : `a ${duplicati.length} documenti`}{" "}
+          già archiviato{duplicati.length !== 1 ? "i" : ""}
+        </div>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {duplicati.map(d => (
+          <div key={d.id} style={{ padding: "12px 14px", borderRadius: 8,
+                                    border: "1px solid rgba(239,68,68,0.3)",
+                                    background: "rgba(239,68,68,0.04)" }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center",
+                           marginBottom: d.associazioni?.length ? 8 : 0 }}>
+              <i className="ti ti-file" style={{ color: "var(--text2)", fontSize: 14 }} />
+              <span style={{ fontWeight: 600, fontSize: 13, flex: 1 }}>{d.nome_file}</span>
+              {d.tipo_nome && <Badge label={d.tipo_nome} color="gray" />}
+              <span style={{ fontSize: 11, color: "var(--text2)", whiteSpace: "nowrap" }}>
+                {toITdate(d.created_at)}
+              </span>
+            </div>
+            {d.associazioni?.length > 0 && (
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                {d.associazioni.map((a, i) => (
+                  <Badge key={i}
+                         label={`${ENTITA_LABELS[a.entita_tipo] || a.entita_tipo}: ${a.entita_nome || a.entita_id}`}
+                         color={ENTITA_COLORS[a.entita_tipo] || "gray"} />
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
 // Mappa tipi MIME → icona
 function mimeIcon(mime) {
   if (!mime) return "ti-file";
@@ -184,8 +240,9 @@ function Archivio() {
   const [modal,      setModal]      = useState(null);
   const [rename,     setRename]     = useState(null);
   const [conf,       setConf]       = useState(null);
-  const [errFile,    setErrFile]    = useState(null);
-  const [cartellaMdl, setCartellaMdl] = useState(false);
+  const [errFile,      setErrFile]      = useState(null);
+  const [cartellaMdl,  setCartellaMdl]  = useState(false);
+  const [hashIntercept, setHashIntercept] = useState(null); // { file, duplicati, onProceed }
   // bulk upload queue: array di { file, done }
   const [bulkQueue,  setBulkQueue]  = useState([]);
   const [bulkIndex,  setBulkIndex]  = useState(0);
@@ -225,6 +282,19 @@ function Archivio() {
   }, [filtro.entitaTipo, apps]);
 
   async function handleUpload(file) {
+    try {
+      const result = await archivioApi.checkHash(file);
+      if (result.duplicati?.length) {
+        setHashIntercept({
+          file, duplicati: result.duplicati,
+          onProceed: () => {
+            setHashIntercept(null);
+            setModal({ mode: "upload", file, tipDocId: "", note: "", associazioni: [] });
+          },
+        });
+        return;
+      }
+    } catch (e) { console.error("check-hash:", e.message); }
     setModal({ mode: "upload", file, tipDocId: "", note: "", associazioni: [] });
   }
 
@@ -234,12 +304,38 @@ function Archivio() {
     setBulkIndex(0);
   }
 
-  // Quando bulkQueue è pronto, apri il modal per il file corrente
+  function skipBulkCurrent() {
+    setBulkQueue(q => q.map((item, i) => i === bulkIndex ? { ...item, done: true } : item));
+    const next = bulkIndex + 1;
+    if (next < bulkQueue.length) setBulkIndex(next);
+    else { setBulkQueue([]); setBulkIndex(0); }
+  }
+
+  // Quando bulkQueue è pronto, controlla hash poi apri modal
   useEffect(() => {
     if (!bulkQueue.length) return;
     const current = bulkQueue[bulkIndex];
     if (!current || current.done) return;
-    setModal({ mode: "upload", file: current.file, tipDocId: "", note: "", associazioni: [], _bulk: true });
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await archivioApi.checkHash(current.file);
+        if (cancelled) return;
+        if (result.duplicati?.length) {
+          setHashIntercept({
+            file: current.file, duplicati: result.duplicati,
+            onProceed: () => {
+              setHashIntercept(null);
+              setModal({ mode: "upload", file: current.file, tipDocId: "", note: "", associazioni: [], _bulk: true });
+            },
+          });
+          return;
+        }
+      } catch {}
+      if (!cancelled)
+        setModal({ mode: "upload", file: current.file, tipDocId: "", note: "", associazioni: [], _bulk: true });
+    })();
+    return () => { cancelled = true; };
   }, [bulkQueue, bulkIndex]);
 
   async function doUpload(form) {
@@ -728,6 +824,7 @@ export function DocListEntita({ entitaTipo, entitaId, label }) {
   const [props, setProps] = useState([]);
   const [conf,  setConf]  = useState(null);
   const [errFile, setErrFile] = useState(null);
+  const [hashIntercept, setHashIntercept] = useState(null);
   const fileRef = useRef();
 
   const load = useCallback(() => {
@@ -744,6 +841,22 @@ export function DocListEntita({ entitaTipo, entitaId, label }) {
   }, []);
 
   async function handleUpload(file) {
+    try {
+      const result = await archivioApi.checkHash(file);
+      if (result.duplicati?.length) {
+        setHashIntercept({
+          file, duplicati: result.duplicati,
+          onProceed: () => {
+            setHashIntercept(null);
+            setModal({
+              mode: "upload", file, tipDocId: "", note: "",
+              associazioni: [{ entita_tipo: entitaTipo, entita_id: entitaId }],
+            });
+          },
+        });
+        return;
+      }
+    } catch (e) { console.error("check-hash:", e.message); }
     setModal({
       mode: "upload", file, tipDocId: "", note: "",
       associazioni: [{ entita_tipo: entitaTipo, entita_id: entitaId }],
@@ -876,6 +989,14 @@ export function DocListEntita({ entitaTipo, entitaId, label }) {
         </div>
       )}
 
+      {hashIntercept && (
+        <ArchivioHashDupModal
+          file={hashIntercept.file}
+          duplicati={hashIntercept.duplicati}
+          onProceed={hashIntercept.onProceed}
+          onCancel={() => setHashIntercept(null)}
+        />
+      )}
       {modal && (
         <DocModal
           mode={modal.mode}

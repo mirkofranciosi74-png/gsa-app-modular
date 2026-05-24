@@ -28,6 +28,7 @@ import { dashboardRouter, grigliaRouter,
          regoleRouter, reportRouter }            from "./modules/contabilita/routes.js";
 import { archivioTipiRouter, archivioRouter }    from "./modules/archivio/routes.js";
 import { adminRouter }                           from "./modules/admin/routes.js";
+import { speseProprietariRouter }                from "./modules/spese_proprietari/routes.js";
 import { importazioneRouter }                    from "./modules/importazione/routes.js";
 
 const app  = express();
@@ -55,9 +56,10 @@ app.use("/api/dashboard",     dashboardRouter);
 app.use("/api/griglia",       grigliaRouter);
 app.use("/api/regole",        regoleRouter);
 app.use("/api/report",        reportRouter);
-app.use("/api/archivio-tipi", archivioTipiRouter);
-app.use("/api/archivio",      archivioRouter);
-app.use("/api/admin",         adminRouter);
+app.use("/api/archivio-tipi",       archivioTipiRouter);
+app.use("/api/archivio",            archivioRouter);
+app.use("/api/spese-proprietari",   speseProprietariRouter);
+app.use("/api/admin",               adminRouter);
 app.use("/api/importazione",  importazioneRouter);
 
 app.use(errorHandler);

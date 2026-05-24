@@ -123,6 +123,84 @@ export async function verificaCoerenza() {
     ORDER BY a.nome, d.data_caricamento
   `);
 
+  // 8a. Hash duplicati — documenti spese
+  const hashDuplicatiDocumenti = await query(`
+    WITH dup AS (
+      SELECT file_hash FROM documenti WHERE file_hash IS NOT NULL
+      GROUP BY file_hash HAVING COUNT(*) > 1
+    )
+    SELECT d.id, d.nome_file, d.importo, d.data_caricamento::text AS data,
+           d.file_hash, a.nome AS appartamento_nome,
+           ts.descrizione AS tipo_spesa
+    FROM documenti d
+    JOIN dup ON dup.file_hash = d.file_hash
+    JOIN appartamenti a ON a.id = d.appartamento_id
+    LEFT JOIN tipi_spesa ts ON ts.id = d.tipo_spesa_id
+    ORDER BY d.file_hash, d.data_caricamento
+  `);
+
+  // 8b. Hash duplicati — allegati spese proprietari
+  const hashDuplicatiAllegati = await query(`
+    WITH dup AS (
+      SELECT file_hash FROM spese_proprietari_allegati WHERE file_hash IS NOT NULL
+      GROUP BY file_hash HAVING COUNT(*) > 1
+    )
+    SELECT sa.id, sa.nome_file, sa.file_hash,
+           sp.importo, sp.data_pagamento::text AS data,
+           a.nome AS appartamento_nome
+    FROM spese_proprietari_allegati sa
+    JOIN dup ON dup.file_hash = sa.file_hash
+    JOIN spese_proprietari sp ON sp.id = sa.spesa_id
+    JOIN appartamenti a ON a.id = sp.appartamento_id
+    ORDER BY sa.file_hash, sp.data_pagamento
+  `);
+
+  // 8c. Hash duplicati — archivio documentale
+  const hashDuplicatiArchivio = await query(`
+    WITH dup AS (
+      SELECT file_hash FROM archivio_documenti WHERE file_hash IS NOT NULL
+      GROUP BY file_hash HAVING COUNT(*) > 1
+    )
+    SELECT d.id, d.nome_file, d.file_hash, d.created_at::text AS data,
+           t.nome AS tipo_nome
+    FROM archivio_documenti d
+    JOIN dup ON dup.file_hash = d.file_hash
+    LEFT JOIN archivio_tipi_documento t ON t.id = d.tipo_documento_id
+    ORDER BY d.file_hash, d.created_at
+  `);
+
+  // 8d. Hash mancanti — documenti spese
+  const hashMancantiDocumenti = await query(`
+    SELECT d.id, d.nome_file, d.importo, d.data_caricamento::text AS data,
+           a.nome AS appartamento_nome
+    FROM documenti d
+    JOIN appartamenti a ON a.id = d.appartamento_id
+    WHERE d.file_hash IS NULL
+    ORDER BY d.data_caricamento
+  `);
+
+  // 8e. Hash mancanti — allegati spese proprietari
+  const hashMancantiAllegati = await query(`
+    SELECT sa.id, sa.nome_file,
+           sp.importo, sp.data_pagamento::text AS data,
+           a.nome AS appartamento_nome
+    FROM spese_proprietari_allegati sa
+    JOIN spese_proprietari sp ON sp.id = sa.spesa_id
+    JOIN appartamenti a ON a.id = sp.appartamento_id
+    WHERE sa.file_hash IS NULL
+    ORDER BY sp.data_pagamento
+  `);
+
+  // 8f. Hash mancanti — archivio documentale
+  const hashMancantiArchivio = await query(`
+    SELECT d.id, d.nome_file, d.created_at::text AS data,
+           t.nome AS tipo_nome
+    FROM archivio_documenti d
+    LEFT JOIN archivio_tipi_documento t ON t.id = d.tipo_documento_id
+    WHERE d.file_hash IS NULL
+    ORDER BY d.created_at
+  `);
+
   // 8. Regole di riparto con proprietari non più associati all'appartamento o inattivi
   const regoleRipartoAnomale = await query(`
     SELECT r.id AS regola_id,
@@ -169,6 +247,10 @@ export async function verificaCoerenza() {
     ORDER BY appartamento_nome, proprietario_nome
   `);
 
+  const dupHashDocGruppi      = new Set(hashDuplicatiDocumenti.map(r => r.file_hash)).size;
+  const dupHashAllegatiGruppi = new Set(hashDuplicatiAllegati.map(r => r.file_hash)).size;
+  const dupHashArchivioGruppi = new Set(hashDuplicatiArchivio.map(r => r.file_hash)).size;
+
   const totale =
     appartamentiSenzaProprietario.length +
     percentualiScorrette.length +
@@ -177,7 +259,9 @@ export async function verificaCoerenza() {
     documentiProprietarioInattivo.length +
     movimentiFuoriValidita.length +
     documentiFuoriValidita.length +
-    regoleRipartoAnomale.length;
+    regoleRipartoAnomale.length +
+    dupHashDocGruppi + dupHashAllegatiGruppi + dupHashArchivioGruppi +
+    hashMancantiDocumenti.length + hashMancantiAllegati.length + hashMancantiArchivio.length;
 
   return {
     generato_il: new Date().toISOString(),
@@ -190,5 +274,11 @@ export async function verificaCoerenza() {
     movimenti_fuori_validita:          movimentiFuoriValidita,
     documenti_fuori_validita:          documentiFuoriValidita,
     regole_riparto_anomale:            regoleRipartoAnomale,
+    hash_duplicati_documenti:          hashDuplicatiDocumenti,
+    hash_duplicati_allegati:           hashDuplicatiAllegati,
+    hash_duplicati_archivio:           hashDuplicatiArchivio,
+    hash_mancanti_documenti:           hashMancantiDocumenti,
+    hash_mancanti_allegati:            hashMancantiAllegati,
+    hash_mancanti_archivio:            hashMancantiArchivio,
   };
 }

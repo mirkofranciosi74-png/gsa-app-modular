@@ -373,18 +373,40 @@ function TabellaAnomalieSimple({ rows, cols }) {
   );
 }
 
+// ── helpers hash ──────────────────────────────────────────────────────────────
+function groupByHash(rows) {
+  const map = {};
+  for (const r of rows) {
+    if (!map[r.file_hash]) map[r.file_hash] = [];
+    map[r.file_hash].push(r);
+  }
+  return Object.values(map);
+}
+
 // ── Sezione verifica coerenza ──────────────────────────────────────────────────
 function VerificaCoerenzaSection() {
-  const [report,  setReport]  = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [err,     setErr]     = useState(null);
+  const [report,    setReport]    = useState(null);
+  const [loading,   setLoading]   = useState(false);
+  const [err,       setErr]       = useState(null);
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillResult, setBackfillResult] = useState(null);
   const reportRef = useRef();
 
   async function avvia() {
-    setLoading(true); setErr(null); setReport(null);
+    setLoading(true); setErr(null); setReport(null); setBackfillResult(null);
     try { setReport(await adminApi.verificaCoerenza()); }
     catch (e) { setErr(e.message); }
     finally { setLoading(false); }
+  }
+
+  async function backfill() {
+    setBackfilling(true); setBackfillResult(null);
+    try {
+      const r = await adminApi.backfillHash();
+      setBackfillResult(r);
+      setReport(await adminApi.verificaCoerenza());
+    } catch (e) { setErr(e.message); }
+    finally { setBackfilling(false); }
   }
 
   function stampa() {
@@ -574,6 +596,98 @@ function VerificaCoerenzaSection() {
                 ]}
               />
             </Sezione>
+
+            {/* ── Hash duplicati ── */}
+            {[
+              { key: "hash_duplicati_documenti",  label: "Spese con file duplicato (hash identico)",         icon: "ti-copy" },
+              { key: "hash_duplicati_allegati",   label: "Allegati spese proprietari duplicati",             icon: "ti-copy" },
+              { key: "hash_duplicati_archivio",   label: "File archivio duplicati",                          icon: "ti-copy" },
+            ].map(({ key, label, icon }) => {
+              const rows  = report[key] || [];
+              const gruppi = groupByHash(rows);
+              return (
+                <Sezione key={key} titolo={label} icon={icon}
+                         items={rows.length ? [1] : []}>
+                  {gruppi.map((gruppo, gi) => (
+                    <div key={gi} style={{ marginBottom: gi < gruppi.length - 1 ? 12 : 0,
+                                           padding: "8px 10px", borderRadius: 6,
+                                           border: "1px solid rgba(239,68,68,0.25)",
+                                           background: "rgba(239,68,68,0.04)" }}>
+                      <div style={{ fontSize: 10, color: "var(--text2)", fontFamily: "monospace",
+                                    marginBottom: 6 }}>
+                        hash: {gruppo[0].file_hash?.slice(0, 16)}…
+                      </div>
+                      <TabellaAnomalieSimple rows={gruppo} cols={[
+                        { k: "nome_file",         label: "File" },
+                        { k: "appartamento_nome", label: "Appartamento" },
+                        { k: "tipo_spesa",        label: "Tipo" },
+                        { k: "tipo_nome",         label: "Tipo" },
+                        { k: "importo",           label: "Importo", right: true, fmt: v => v != null ? fmtEuro(v) : "—" },
+                        { k: "data",              label: "Data",    fmt: fmtData },
+                      ].filter(c => gruppo[0][c.k] !== undefined)} />
+                    </div>
+                  ))}
+                </Sezione>
+              );
+            })}
+
+            {/* ── Hash mancanti ── */}
+            {[
+              { key: "hash_mancanti_documenti", label: "Spese senza impronta digitale (hash mancante)",  icon: "ti-fingerprint-off" },
+              { key: "hash_mancanti_allegati",  label: "Allegati spese proprietari senza hash",           icon: "ti-fingerprint-off" },
+              { key: "hash_mancanti_archivio",  label: "File archivio senza hash",                        icon: "ti-fingerprint-off" },
+            ].map(({ key, label, icon }) => {
+              const rows = report[key] || [];
+              return (
+                <Sezione key={key} titolo={label} icon={icon} items={rows}>
+                  <TabellaAnomalieSimple rows={rows} cols={[
+                    { k: "nome_file",         label: "File" },
+                    { k: "appartamento_nome", label: "Appartamento" },
+                    { k: "importo",           label: "Importo", right: true, fmt: v => v != null ? fmtEuro(v) : "—" },
+                    { k: "data",              label: "Data",    fmt: fmtData },
+                    { k: "tipo_nome",         label: "Tipo" },
+                  ].filter(c => rows[0]?.[c.k] !== undefined)} />
+                </Sezione>
+              );
+            })}
+
+            {/* ── Backfill hash ── */}
+            {(
+              (report.hash_mancanti_documenti?.length || 0) +
+              (report.hash_mancanti_allegati?.length  || 0) +
+              (report.hash_mancanti_archivio?.length  || 0)
+            ) > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px",
+                             background: "var(--bg2)", borderRadius: 8, border: "1px solid var(--border)" }}>
+                <i className="ti ti-fingerprint" style={{ color: "var(--accent)", fontSize: 18 }} />
+                <span style={{ flex: 1, fontSize: 13 }}>
+                  Calcola gli hash mancanti rileggendo i file dal disco
+                </span>
+                <Btn variant="primary" size="sm" onClick={backfill} disabled={backfilling}>
+                  {backfilling
+                    ? <><i className="ti ti-loader-2 spin" /> Calcolo…</>
+                    : <><i className="ti ti-refresh" /> Calcola hash mancanti</>}
+                </Btn>
+              </div>
+            )}
+
+            {backfillResult && (
+              <div className="alert alert-success">
+                <i className="ti ti-circle-check" />
+                <div>
+                  <strong>Hash calcolati</strong>
+                  <p style={{ margin: "4px 0 0", fontSize: 13 }}>
+                    Spese: {backfillResult.updatedDocs} aggiornate
+                    {backfillResult.missingDocs > 0 && `, ${backfillResult.missingDocs} file non trovati`}
+                    {" · "}Allegati: {backfillResult.updatedAllegati} aggiornati
+                    {backfillResult.missingAllegati > 0 && `, ${backfillResult.missingAllegati} file non trovati`}
+                    {" · "}Archivio: {backfillResult.updatedArchivio} aggiornati
+                    {backfillResult.missingArchivio > 0 && `, ${backfillResult.missingArchivio} file non trovati`}
+                  </p>
+                </div>
+              </div>
+            )}
+
           </div>
         </div>
       )}

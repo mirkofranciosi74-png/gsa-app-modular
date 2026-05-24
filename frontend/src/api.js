@@ -97,6 +97,15 @@ export const documentiApi = {
   update: (id, d)  => put(`/documenti/${id}`, d),
   delete: id       => del(`/documenti/${id}`),
 
+  checkHash: file => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return fetch(`${BASE}/documenti/check-hash`, { method: "POST", body: fd })
+      .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); });
+  },
+
+  deletePdf: id => del(`/documenti/${id}/pdf`),
+
   extract: file => {
     const fd = new FormData();
     fd.append("file", file);
@@ -236,6 +245,47 @@ export const regoleApi = {
   delete:             id     => del(`/regole/${id}`),
 };
 
+// ── SPESE PROPRIETARI ─────────────────────────────────────────────────────────
+export const speseProprietariApi = {
+  list: (f = {}) => {
+    const qs = new URLSearchParams(
+      Object.fromEntries(Object.entries(f).filter(([, v]) => v))
+    ).toString();
+    return get(`/spese-proprietari${qs ? "?" + qs : ""}`);
+  },
+  create:      d       => post("/spese-proprietari", d),
+  update:      (id, d) => put(`/spese-proprietari/${id}`, d),
+  updateStato: (id, s) => http("PATCH", `/spese-proprietari/${id}/stato`, { stato: s }),
+  delete:      id      => del(`/spese-proprietari/${id}`),
+
+  checkHash: file => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return fetch(`${BASE}/spese-proprietari/check-hash`, { method: "POST", body: fd })
+      .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); });
+  },
+
+  listAllegati:   id            => get(`/spese-proprietari/${id}/allegati`),
+  allegatoUrl:    (id, aid)     => `${BASE}/spese-proprietari/${id}/allegati/${aid}`,
+  uploadAllegati: (id, files)   => {
+    const fd = new FormData();
+    files.forEach(f => fd.append("files", f));
+    return up(`/spese-proprietari/${id}/allegati`, fd);
+  },
+  deleteAllegato: (id, aid)     => del(`/spese-proprietari/${id}/allegati/${aid}`),
+
+  allegati: {
+    list:   id          => get(`/spese-proprietari/${id}/allegati`),
+    getUrl: (id, aid)   => `${BASE}/spese-proprietari/${id}/allegati/${aid}`,
+    upload: (id, files) => {
+      const fd = new FormData();
+      files.forEach(f => fd.append("files", f));
+      return up(`/spese-proprietari/${id}/allegati`, fd);
+    },
+    delete: (id, aid)   => del(`/spese-proprietari/${id}/allegati/${aid}`),
+  },
+};
+
 // ── ARCHIVIO DOCUMENTALE ─────────────────────────────────────────────────────
 export const archivioTipiApi = {
   list:   ()       => get("/archivio-tipi"),
@@ -255,6 +305,13 @@ export const archivioApi = {
   update: (id, d)  => put(`/archivio/${id}`, d),
   delete: id       => del(`/archivio/${id}`),
   fileUrl: id      => `${BASE}/archivio/${id}/file`,
+
+  checkHash: file => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return fetch(`${BASE}/archivio/check-hash`, { method: "POST", body: fd })
+      .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); });
+  },
 
   upload: (file, { tipDocId, note, associazioni = [] }) => {
     const fd = new FormData();
@@ -298,6 +355,7 @@ export const associazioniApi = {
 // ── ADMIN ─────────────────────────────────────────────────────────────────────
 export const adminApi = {
   verificaCoerenza: () => get("/admin/verifica-coerenza"),
+  backfillHash:     () => post("/admin/backfill-hash", {}),
   backup: async (tipo = "tutto") => {
     const res = await fetch(`${BASE}/admin/backup?tipo=${tipo}`);
     if (!res.ok) throw new Error(`Backup fallito: HTTP ${res.status}`);

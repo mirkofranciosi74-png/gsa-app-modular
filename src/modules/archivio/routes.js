@@ -41,6 +41,40 @@ archivioRouter.get("/:id/file", h(async (q, r) => {
   r.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(d.nome_file)}"`);
   r.send(buf);
 }));
+archivioRouter.post("/check-hash", up.single("file"), h(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "Nessun file" });
+  const { query } = await import("../../shared/db/pool.js");
+  const hash = createHash("md5").update(req.file.buffer).digest("hex");
+
+  const rows = await query(
+    `SELECT d.id, d.nome_file, d.created_at, t.nome AS tipo_nome
+     FROM archivio_documenti d
+     LEFT JOIN archivio_tipi_documento t ON t.id = d.tipo_documento_id
+     WHERE d.file_hash = $1 LIMIT 5`,
+    [hash]
+  );
+  if (!rows.length) return res.json({ hash, duplicati: [] });
+
+  const ids    = rows.map(r => r.id);
+  const assocs = await query(
+    `SELECT aa.documento_id, aa.entita_tipo, aa.entita_id,
+            COALESCE(a.nome, c.nome||' '||COALESCE(c.cognome,''),
+                     pr.nome||' '||COALESCE(pr.cognome,'')) AS entita_nome
+     FROM archivio_associazioni aa
+     LEFT JOIN appartamenti a  ON aa.entita_tipo='appartamento' AND a.id=aa.entita_id
+     LEFT JOIN componenti   c  ON aa.entita_tipo='inquilino'    AND c.id=aa.entita_id
+     LEFT JOIN proprietari  pr ON aa.entita_tipo='proprietario' AND pr.id=aa.entita_id
+     WHERE aa.documento_id = ANY($1)`,
+    [ids]
+  );
+  const assocMap = {};
+  for (const a of assocs) {
+    if (!assocMap[a.documento_id]) assocMap[a.documento_id] = [];
+    assocMap[a.documento_id].push(a);
+  }
+  res.json({ hash, duplicati: rows.map(r => ({ ...r, associazioni: assocMap[r.id] || [] })) });
+}));
+
 archivioRouter.post("/upload", up.single("file"), h(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "Nessun file" });
   const { tipo_documento_id, note } = req.body;
