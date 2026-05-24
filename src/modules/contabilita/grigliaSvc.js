@@ -497,6 +497,87 @@ export async function grigliaPropretari(appId, periodoDA, periodoA) {
     return r;
   }
 
+  // Spese proprietari (proprie del modulo spese_proprietari, distinte da documenti)
+  const spesePropRows = await query(
+    `SELECT s.id, s.importo, s.periodicita,
+            s.validita_da, s.validita_a, s.data_pagamento, s.mese_competenza,
+            s.proprietario_id AS pagato_da_proprietario_id,
+            s.fornitore, s.descrizione,
+            ts.descrizione AS tipo_descrizione,
+            COALESCE(
+              json_agg(
+                json_build_object('proprietario_id', q.proprietario_id, 'percentuale', q.percentuale)
+              ) FILTER (WHERE q.proprietario_id IS NOT NULL),
+              '[]'::json
+            ) AS quote_raw
+     FROM spese_proprietari s
+     LEFT JOIN tipi_spesa ts ON ts.id = s.tipo_spesa_id
+     LEFT JOIN spese_proprietari_quote q ON q.spesa_id = s.id
+     WHERE s.appartamento_id = $1
+     GROUP BY s.id, s.importo, s.periodicita, s.validita_da, s.validita_a,
+              s.data_pagamento, s.mese_competenza, s.proprietario_id,
+              s.fornitore, s.descrizione, ts.descrizione
+     ORDER BY s.validita_da NULLS LAST`,
+    [appId]
+  );
+
+  const righeSpeseProp = [];
+  for (const s of spesePropRows) {
+    const meseRif = s.mese_competenza
+      ? String(s.mese_competenza).slice(0, 7)
+      : (s.data_pagamento ? String(s.data_pagamento).slice(0, 7) : null);
+    const pseudoMov = {
+      periodicita:     s.periodicita || "una_tantum",
+      validita_da:     s.validita_da,
+      validita_a:      s.validita_a,
+      mese_riferimento: meseRif,
+      c_vda: null,
+      c_va:  null,
+    };
+    const occ = _occorrenzeMovimento(pseudoMov, fDA, fA);
+    if (occ === 0) continue;
+
+    const importo  = parseFloat(s.importo || 0) * occ;
+    const quoteRaw = Array.isArray(s.quote_raw) ? s.quote_raw : [];
+
+    const quotePerProp = {};
+    for (const p of props) quotePerProp[p.proprietario_id] = 0;
+    for (const q of quoteRaw) {
+      const pid = q.proprietario_id;
+      if (pid in quotePerProp) {
+        quotePerProp[pid] = importo * parseFloat(q.percentuale) / 100;
+      }
+    }
+
+    const una = (s.periodicita || "una_tantum") === "una_tantum";
+    const dispDa = una
+      ? (meseRif || toYM(s.validita_da))
+      : (_max(toYM(s.validita_da), fDA) || fDA);
+    const dispA  = una ? null
+      : (_min(toYM(s.validita_a) || "2999-12", fA) || fA);
+
+    righeSpeseProp.push({
+      tipo_descrizione:          s.tipo_descrizione || s.descrizione || "Spesa proprietari",
+      descrizione:               s.descrizione || null,
+      fornitore:                 s.fornitore   || null,
+      periodo_da:                dispDa,
+      periodo_a:                 dispA !== dispDa ? dispA : null,
+      importo,
+      pagato_da_proprietario_id: s.pagato_da_proprietario_id,
+      quote:                     quotePerProp,
+    });
+  }
+
+  const totaliDareTeoricoProp = {};
+  const totaliPagatoProp      = {};
+  for (const p of props) {
+    const pid = p.proprietario_id;
+    totaliDareTeoricoProp[pid] = righeSpeseProp.reduce((s, r) => s + (r.quote[pid] || 0), 0);
+    totaliPagatoProp[pid]      = righeSpeseProp
+      .filter(r => r.pagato_da_proprietario_id === pid)
+      .reduce((s, r) => s + r.importo, 0);
+  }
+
   // Spese elaborate nel periodo
   const docsRows = await query(
     `SELECT d.id, d.importo, d.periodo_da, d.periodo_a,
@@ -660,10 +741,13 @@ export async function grigliaPropretari(appId, periodoDA, periodoA) {
     props,
     righeDocumenti,
     righeMovimenti,
+    righeSpeseProp,
     totaliDareTeorico,
     totaliAvereTeorico,
     totaliPagato,
     totaliIncassato,
+    totaliDareTeoricoProp,
+    totaliPagatoProp,
     periodoDA: fDA,
     periodoA:  fA,
   };
@@ -745,6 +829,20 @@ export async function dashboardAnno() {
       }
     }
 
+    const perInquilino = comps.map(c => {
+      const spese   = totaliDovuto[c.id]  || 0;
+      const versato = totaliVersato[c.id] || 0;
+      const affitto = totAff[c.id]        || 0;
+      return {
+        id:            c.id,
+        nome:          (c.label || `${c.nome} ${(c.cognome || "").trim()}`).trim(),
+        totaleSpese:   spese,
+        totaleVersato: versato,
+        totaleAffitto: affitto,
+        saldo:         versato - spese - affitto,
+      };
+    });
+
     perAppartamento.push({
       id:               app.id,
       nome:             app.nome,
@@ -754,6 +852,7 @@ export async function dashboardAnno() {
       totaleAffitto:    totAffGlob,
       saldo,
       mesiScoperti,
+      perInquilino,
     });
   }
 
@@ -793,7 +892,8 @@ export async function dashboardProprietari() {
 
     const g = await grigliaPropretari(app.id, periodoDA, periodoA);
     const { props, totaliDareTeorico, totaliAvereTeorico,
-            totaliPagato, totaliIncassato } = g;
+            totaliPagato, totaliIncassato,
+            totaliDareTeoricoProp, totaliPagatoProp } = g;
 
     if (props.length === 0) continue;
 
@@ -801,16 +901,21 @@ export async function dashboardProprietari() {
 
     const perProprietario = props.map(p => {
       const pid  = p.proprietario_id;
-      const cong = r2((totaliPagato[pid] || 0) - (totaliIncassato[pid] || 0)
-                    - (totaliDareTeorico[pid] || 0) + (totaliAvereTeorico[pid] || 0));
+      const cong = r2(
+        (totaliPagato[pid] || 0) + (totaliPagatoProp[pid] || 0)
+        - (totaliIncassato[pid] || 0)
+        - (totaliDareTeorico[pid] || 0) - (totaliDareTeoricoProp[pid] || 0)
+        + (totaliAvereTeorico[pid] || 0)
+      );
       return {
-        id:          pid,
-        nome:        `${p.proprietario_nome} ${p.proprietario_cognome || ""}`.trim(),
-        dareTeorico:  r2(totaliDareTeorico[pid]  || 0),
-        avereTeorico: r2(totaliAvereTeorico[pid] || 0),
-        pagato:       r2(totaliPagato[pid]       || 0),
-        incassato:    r2(totaliIncassato[pid]    || 0),
-        conguaglio:   cong,
+        id:              pid,
+        nome:            `${p.proprietario_nome} ${p.proprietario_cognome || ""}`.trim(),
+        dareTeoricoDocs: r2(totaliDareTeorico[pid] || 0),
+        dareTeorico:     r2((totaliDareTeorico[pid] || 0) + (totaliDareTeoricoProp[pid] || 0)),
+        avereTeorico:    r2(totaliAvereTeorico[pid] || 0),
+        pagato:          r2((totaliPagato[pid] || 0) + (totaliPagatoProp[pid] || 0)),
+        incassato:       r2(totaliIncassato[pid]    || 0),
+        conguaglio:      cong,
       };
     });
 
