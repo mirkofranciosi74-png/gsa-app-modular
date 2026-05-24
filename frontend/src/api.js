@@ -93,6 +93,7 @@ export const documentiApi = {
   },
   get:    id       => get(`/documenti/${id}`),
   audit:  id       => get(`/documenti/${id}/audit`),
+  riparto: id      => get(`/documenti/${id}/riparto`),
   create: d        => post("/documenti", d),
   update: (id, d)  => put(`/documenti/${id}`, d),
   delete: id       => del(`/documenti/${id}`),
@@ -101,6 +102,13 @@ export const documentiApi = {
     const fd = new FormData();
     fd.append("file", file);
     return fetch(`${BASE}/documenti/check-hash`, { method: "POST", body: fd })
+      .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); });
+  },
+
+  checkHashGlobal: file => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return fetch(`${BASE}/documenti/check-hash-global`, { method: "POST", body: fd })
       .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); });
   },
 
@@ -257,6 +265,7 @@ export const speseProprietariApi = {
   update:      (id, d) => put(`/spese-proprietari/${id}`, d),
   updateStato: (id, s) => http("PATCH", `/spese-proprietari/${id}/stato`, { stato: s }),
   delete:      id      => del(`/spese-proprietari/${id}`),
+  riparto:     id      => get(`/spese-proprietari/${id}/riparto`),
 
   checkHash: file => {
     const fd = new FormData();
@@ -265,11 +274,17 @@ export const speseProprietariApi = {
       .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); });
   },
 
+  extract: file => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return up("/spese-proprietari/extract", fd);
+  },
+
   listAllegati:   id            => get(`/spese-proprietari/${id}/allegati`),
   allegatoUrl:    (id, aid)     => `${BASE}/spese-proprietari/${id}/allegati/${aid}`,
   uploadAllegati: (id, files)   => {
     const fd = new FormData();
-    files.forEach(f => fd.append("files", f));
+    Array.from(files).forEach(f => fd.append("files", f));
     return up(`/spese-proprietari/${id}/allegati`, fd);
   },
   deleteAllegato: (id, aid)     => del(`/spese-proprietari/${id}/allegati/${aid}`),
@@ -279,7 +294,7 @@ export const speseProprietariApi = {
     getUrl: (id, aid)   => `${BASE}/spese-proprietari/${id}/allegati/${aid}`,
     upload: (id, files) => {
       const fd = new FormData();
-      files.forEach(f => fd.append("files", f));
+      Array.from(files).forEach(f => fd.append("files", f));
       return up(`/spese-proprietari/${id}/allegati`, fd);
     },
     delete: (id, aid)   => del(`/spese-proprietari/${id}/allegati/${aid}`),

@@ -1,8 +1,26 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { appartamentiApi, proprietariApi, associazioniApi, speseProprietariApi, tipiSpesaApi } from "../api.js";
+import { appartamentiApi, proprietariApi, associazioniApi, speseProprietariApi, tipiSpesaApi, documentiApi } from "../api.js";
 import { Btn, Badge, Modal, Confirm, Field, SectionHeader } from "../components/ui.jsx";
 import { euro, toISO, toITdate, mesL } from "../utils/formatters.js";
 import DocPreview from "../components/DocPreview.jsx";
+import { usePdfQueue } from "../hooks/usePdfQueue.js";
+import { PdfQueuePanel } from "../components/PdfQueuePanel.jsx";
+
+function _mapSPExtract(e) {
+  if (!e) return {};
+  const p = {};
+  if (e.importo        != null) p.importo              = String(e.importo);
+  if (e.fornitore)              p.fornitore             = e.fornitore;
+  if (e.numero_fattura)         p.numero_fattura        = e.numero_fattura;
+  if (e.mese_competenza)        p.mese_competenza       = e.mese_competenza;
+  if (e.tipo_spesa_id)          p.tipo_spesa_id         = e.tipo_spesa_id;
+  if (e.appartamento_id)        p.appartamento_id       = e.appartamento_id;
+  if (e.confidenza     != null) p._confidenza           = e.confidenza;
+  if (e.metodo_estrazione)      p._metodo               = e.metodo_estrazione;
+  if (e.appartamento_nome)      p._appartamento_nome    = e.appartamento_nome;
+  if (e.tipo_descrizione)       p._tipo_descrizione     = e.tipo_descrizione;
+  return p;
+}
 
 // ── Costanti ──────────────────────────────────────────────────────────────────
 
@@ -704,14 +722,17 @@ export function SpeseProprietari() {
   const [allegatiLoading, setAllegatiLoading] = useState(false);
   const [selectedAllegato, setSelectedAllegato] = useState(null);
   const [dupWarnings,     setDupWarnings]     = useState([]);
+  const [modalDocs,       setModalDocs]       = useState([]);  // documenti dell'appartamento selezionato
+  const [suggLoading,     setSuggLoading]     = useState(false);
   const [pendingFile,     setPendingFile]     = useState(null);
   const [pendingPdfUrl,   setPendingPdfUrl]   = useState(null);
   const [hashDupWarning,   setHashDupWarning]   = useState(null); // { nome_file, duplicati_allegati, duplicati_documenti }
   const [hashDupIntercept, setHashDupIntercept] = useState(null); // stesso shape, apre modal intercetto
   const [postSaveWarnings, setPostSaveWarnings] = useState([]);
-  const allegatiInputRef = useRef(null);
-  const pdfNuovoRef      = useRef(null);
-  const formAllegaRef    = useRef(null);
+  const allegatiInputRef    = useRef(null);
+  const pdfNuovoRef         = useRef(null);
+  const formAllegaRef       = useRef(null);
+  const currentQueueItemRef = useRef(null);  // queue item attivo nel modal
 
   // Filtri
   const [filtroProprietario, setFiltroProprietario] = useState("");
@@ -738,6 +759,41 @@ export function SpeseProprietari() {
   []);
 
   useEffect(() => { load(); }, [load]);
+
+  const { queue: spQueue, setQueue: setSpQueue, addFiles: addSpFiles, removeItem: removeSpItem, clearQueue: clearSpQueue, apriProssimo: apriProssimoSP } = usePdfQueue({
+    extractFn: async (file) => {
+      const [hashRes, extractRes] = await Promise.allSettled([
+        documentiApi.checkHashGlobal(file),
+        speseProprietariApi.extract(file),
+      ]);
+      return {
+        hash:    hashRes.status    === "fulfilled" ? hashRes.value    : null,
+        extract: extractRes.status === "fulfilled" ? extractRes.value : null,
+      };
+    },
+    onReady: (item) => {
+      currentQueueItemRef.current = item;
+      const { hash, extract } = item.data || {};
+      const hasDup = hash?.duplicati_allegati?.length || hash?.duplicati_documenti?.length || hash?.duplicati_archivio?.length;
+      const prefill = _mapSPExtract(extract);
+      setPendingPdfUrl(item.pdfUrl);
+      if (hasDup) {
+        const dupWarn = {
+          nome_file:           item.nomeFile,
+          duplicati_allegati:  hash.duplicati_allegati  || [],
+          duplicati_documenti: hash.duplicati_documenti || [],
+          duplicati_archivio:  hash.duplicati_archivio  || [],
+        };
+        setHashDupWarning(dupWarn);
+        setHashDupIntercept({ ...dupWarn, fromForm: false });
+      } else {
+        setHashDupWarning(null);
+        apriNuovo(prefill);
+      }
+    },
+    onAfterBatch: load,
+    keepFile: true,
+  });
 
   const tipiAttivi = tipi.filter(t => t.attivo);
 
@@ -813,6 +869,14 @@ export function SpeseProprietari() {
       .catch(() => setAssocModal([]));
   }, [modal?.appartamento_id]);
 
+  // Carica documenti elaborati dell'appartamento selezionato nel modal
+  useEffect(() => {
+    if (!modal?.appartamento_id) { setModalDocs([]); return; }
+    documentiApi.list({ appartamentoId: modal.appartamento_id, stato: "elaborato" })
+      .then(setModalDocs)
+      .catch(() => setModalDocs([]));
+  }, [modal?.appartamento_id]);
+
   // Quando le associazioni cambiano (nuovo appartamento), auto-popola le quote
   useEffect(() => {
     if (!assocModal.length) return;
@@ -880,40 +944,13 @@ export function SpeseProprietari() {
     setHashDupWarning(null);
   }
 
-  async function handleCaricaPdf(file) {
-    if (!file) return;
-    const url = URL.createObjectURL(file);
-    let dupWarning = null;
-    try {
-      const result = await speseProprietariApi.checkHash(file);
-      if (result.duplicati_allegati?.length || result.duplicati_documenti?.length) {
-        dupWarning = {
-          nome_file:           file.name,
-          duplicati_allegati:  result.duplicati_allegati  || [],
-          duplicati_documenti: result.duplicati_documenti || [],
-        };
-      }
-    } catch (e) {
-      console.error("check-hash:", e.message);
-    }
-    setPendingFile(file);
-    setPendingPdfUrl(url);
-    if (dupWarning) {
-      setHashDupWarning(dupWarning);
-      setHashDupIntercept({ ...dupWarning, fromForm: false });
-    } else {
-      setHashDupWarning(null);
-      apriNuovo();
-    }
-  }
-
   async function handleCaricaPdfInForm(file) {
     if (!file) return;
     const url = URL.createObjectURL(file);
     let dupWarning = null;
     try {
-      const result = await speseProprietariApi.checkHash(file);
-      if (result.duplicati_allegati?.length || result.duplicati_documenti?.length) {
+      const result = await documentiApi.checkHashGlobal(file);
+      if (result.duplicati_allegati?.length || result.duplicati_documenti?.length || result.duplicati_archivio?.length) {
         dupWarning = {
           nome_file:           file.name,
           duplicati_allegati:  result.duplicati_allegati  || [],
@@ -931,7 +968,7 @@ export function SpeseProprietari() {
     }
   }
 
-  function apriNuovo() {
+  function apriNuovo(prefill = {}) {
     setForzaSalva(false);
     setAssocModal([]);
     setModal({
@@ -940,7 +977,8 @@ export function SpeseProprietari() {
       data_pagamento: "", mese_competenza: "",
       proprietario_id: "", appartamento_id: "",
       fornitore: "", numero_fattura: "", descrizione: "",
-      stato: "normale", quote: [],
+      stato: "normale", quote: [], documento_id: null,
+      ...prefill,
     });
   }
 
@@ -956,6 +994,7 @@ export function SpeseProprietari() {
       validita_a:      toISO(s.validita_a)     || "",
       data_pagamento:  toISO(s.data_pagamento) || "",
       mese_competenza: s.mese_competenza        || "",
+      documento_id:    s.documento_id           || null,
       quote: (s.quote || []).map(q => ({
         proprietario_id: String(q.proprietario_id),
         percentuale: parseFloat(q.percentuale),
@@ -1013,6 +1052,7 @@ export function SpeseProprietari() {
         numero_fattura:  f.numero_fattura  || null,
         descrizione:     f.descrizione     || null,
         stato:           f.stato           || "normale",
+        documento_id:    f.documento_id    || null,
         quote:           f.quote           || [],
       };
       if (f.id) {
@@ -1021,7 +1061,15 @@ export function SpeseProprietari() {
       } else {
         const nuova = await speseProprietariApi.create(payload);
         setModal(null);
-        if (pendingFile && nuova?.id) {
+
+        const qItem = currentQueueItemRef.current;
+        if (qItem?._file && nuova?.id) {
+          try {
+            const results = await speseProprietariApi.allegati.upload(nuova.id, [qItem._file]);
+            const dups = results.filter(r => r.duplicati_allegati?.length || r.duplicati_documenti?.length);
+            if (dups.length > 0) setPostSaveWarnings(dups);
+          } catch (e) { console.error("Upload allegato:", e.message); }
+        } else if (pendingFile && nuova?.id) {
           try {
             const results = await speseProprietariApi.allegati.upload(nuova.id, [pendingFile]);
             const dups = results.filter(r => r.duplicati_allegati?.length || r.duplicati_documenti?.length);
@@ -1029,9 +1077,38 @@ export function SpeseProprietari() {
           } catch (e) { console.error("Upload allegato:", e.message); }
           clearPendingFile();
         }
+
+        if (qItem) {
+          setSpQueue(prev => {
+            const next = prev.filter(q => q.id !== qItem.id);
+            setTimeout(() => apriProssimoSP(next), 150);
+            return next;
+          });
+          currentQueueItemRef.current = null;
+        }
         load();
       }
     } catch (e) { alert("Errore: " + e.message); }
+  }
+
+  async function suggerisciRiparto() {
+    if (!modal?.id) return;
+    setSuggLoading(true);
+    try {
+      const r = await speseProprietariApi.riparto(modal.id);
+      if (r.proprietari?.length) {
+        setModal(m => ({
+          ...m,
+          quote: r.proprietari.map(p => ({
+            proprietario_id: p.id,
+            percentuale:     parseFloat(p.percentuale.toFixed(4)),
+          })),
+        }));
+      } else {
+        alert(r.motivo || "Nessun proprietario attivo trovato.");
+      }
+    } catch (e) { alert("Errore: " + e.message); }
+    finally { setSuggLoading(false); }
   }
 
   const periLabel  = p => PERI.find(x => x.value === p)?.label || p;
@@ -1065,13 +1142,26 @@ export function SpeseProprietari() {
             <Btn variant="secondary" onClick={() => pdfNuovoRef.current?.click()}>
               <i className="ti ti-file-type-pdf" /> Carica PDF
             </Btn>
-            <input ref={pdfNuovoRef} type="file" accept=".pdf" style={{ display: "none" }}
-              onChange={e => { const f = e.target.files[0]; e.target.value = ""; if (f) handleCaricaPdf(f); }} />
+            <input ref={pdfNuovoRef} type="file" accept=".pdf" multiple style={{ display: "none" }}
+              onChange={e => { const fs = Array.from(e.target.files); e.target.value = ""; if (fs.length) addSpFiles(fs); }} />
             <Btn variant="primary" onClick={apriNuovo}>
               <i className="ti ti-plus" /> Nuova Spesa
             </Btn>
           </div>
         }
+      />
+
+      {/* ── CODA PDF ── */}
+      <PdfQueuePanel
+        queue={spQueue}
+        onValida={item => {
+          currentQueueItemRef.current = item;
+          const prefill = item.data ? _mapSPExtract(item.data.extract) : {};
+          apriNuovo(prefill);
+        }}
+        onRemove={removeSpItem}
+        onClear={clearSpQueue}
+        onProssimo={() => apriProssimoSP(spQueue)}
       />
 
       {/* ── FILTRI ── */}
@@ -1382,10 +1472,34 @@ export function SpeseProprietari() {
       {modal && (
         <Modal
           title={modal.id ? "Modifica Spesa" : (pendingPdfUrl ? "Nuova Spesa — PDF caricato" : "Nuova Spesa")}
-          onClose={() => { setModal(null); clearPendingFile(); }}
+          onClose={() => {
+            const qItem = currentQueueItemRef.current;
+            if (qItem) {
+              setSpQueue(prev => {
+                const next = prev.filter(q => q.id !== qItem.id);
+                setTimeout(() => apriProssimoSP(next), 150);
+                return next;
+              });
+              currentQueueItemRef.current = null;
+            }
+            setModal(null);
+            clearPendingFile();
+          }}
           width={pendingPdfUrl && !modal.id ? 1120 : (modal.id ? 720 : 560)}
           footer={<>
-            <Btn variant="ghost" onClick={() => { setModal(null); clearPendingFile(); }}>Annulla</Btn>
+            <Btn variant="ghost" onClick={() => {
+              const qItem = currentQueueItemRef.current;
+              if (qItem) {
+                setSpQueue(prev => {
+                  const next = prev.filter(q => q.id !== qItem.id);
+                  setTimeout(() => apriProssimoSP(next), 150);
+                  return next;
+                });
+                currentQueueItemRef.current = null;
+              }
+              setModal(null);
+              clearPendingFile();
+            }}>Annulla</Btn>
             {modalDupInfo && !forzaSalva ? (
               <Btn variant="danger"
                 disabled={!!errInt || errImp || errQuote || !modal.proprietario_id || !modal.appartamento_id || !modal.validita_da}
@@ -1422,6 +1536,42 @@ export function SpeseProprietari() {
                     Stai procedendo comunque. Il PDF verrà allegato alla nuova spesa.
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* ── BANNER ESTRAZIONE AI ── */}
+            {!modal.id && modal._confidenza != null && (
+              <div style={{
+                background:    "rgba(59,130,246,0.08)",
+                border:        "1px solid rgba(59,130,246,0.25)",
+                borderRadius:  8,
+                padding:       "9px 12px",
+                fontSize:      12,
+                display:       "flex",
+                alignItems:    "center",
+                gap:           8,
+              }}>
+                <i className="ti ti-robot" style={{ color: "var(--accent)", fontSize: 16, flexShrink: 0 }} />
+                <div style={{ flex: 1 }}>
+                  <span style={{ fontWeight: 600 }}>Dati estratti dal PDF</span>
+                  {" — "}confidenza: <strong style={{ color: modal._confidenza >= 70 ? "var(--green)" : "var(--yellow)" }}>
+                    {modal._confidenza}%
+                  </strong>
+                  {modal._metodo === "tesseract-ocr" && (
+                    <span style={{ marginLeft: 8, opacity: 0.7 }}>(OCR)</span>
+                  )}
+                  {modal._tipo_descrizione && !modal.tipo_spesa_id && (
+                    <span style={{ marginLeft: 8, color: "var(--yellow)" }}>
+                      — tipo "<em>{modal._tipo_descrizione}</em>" non trovato nel catalogo
+                    </span>
+                  )}
+                  {modal._appartamento_nome && !modal.appartamento_id && (
+                    <span style={{ marginLeft: 8, color: "var(--yellow)" }}>
+                      — appartamento "<em>{modal._appartamento_nome}</em>" non abbinato con certezza
+                    </span>
+                  )}
+                </div>
+                <span style={{ fontSize: 11, color: "var(--text2)", flexShrink: 0 }}>Verifica i campi</span>
               </div>
             )}
 
@@ -1542,6 +1692,31 @@ export function SpeseProprietari() {
                 placeholder="Descrizione libera" />
             </Field>
 
+            {/* ── DOCUMENTO COLLEGATO ── */}
+            {modalDocs.length > 0 && (
+              <Field label="Documento collegato" hint="Fattura OCR già caricata">
+                <select value={modal.documento_id || ""}
+                  onChange={e => setModal(m => ({ ...m, documento_id: e.target.value || null }))}>
+                  <option value="">— Nessuno —</option>
+                  {modalDocs.map(d => (
+                    <option key={d.id} value={d.id}>
+                      {d.nome_file}{d.periodo_da ? ` · ${d.periodo_da.slice(0,7)}` : ""}{d.importo ? ` · ${euro(d.importo)}` : ""}
+                    </option>
+                  ))}
+                </select>
+                {modal.documento_id && (() => {
+                  const d = modalDocs.find(x => x.id === modal.documento_id);
+                  return d ? (
+                    <div style={{ fontSize: 11, color: "var(--text2)", marginTop: 4,
+                                  display: "flex", alignItems: "center", gap: 6 }}>
+                      <i className="ti ti-link" />
+                      {d.appartamento_nome || ""} — {d.tipo_descrizione || ""} — {euro(d.importo)}
+                    </div>
+                  ) : null;
+                })()}
+              </Field>
+            )}
+
             {/* ── ALLEGA FILE (solo nuova spesa, prima del salvataggio) ── */}
             {!modal.id && (
               <div>
@@ -1586,7 +1761,7 @@ export function SpeseProprietari() {
                     </p>
                     <input ref={allegatiInputRef} type="file" accept=".pdf,image/*" multiple
                       style={{ display: "none" }}
-                      onChange={e => { const fs = e.target.files; if (fs?.length) handleUploadAllegati(fs); }} />
+                      onChange={e => { const fs = Array.from(e.target.files); if (fs.length) handleUploadAllegati(fs); }} />
                     <Btn variant="secondary" size="sm" disabled={allegatiLoading}
                       onClick={() => allegatiInputRef.current?.click()}>
                       {allegatiLoading
@@ -1688,6 +1863,14 @@ export function SpeseProprietari() {
                         — totale: {totQuote.toFixed(2)}% (deve essere 100%)
                       </span>
                     )}
+                    {modal.id && (
+                      <Btn variant="secondary" size="sm" disabled={suggLoading} onClick={suggerisciRiparto}
+                           title="Calcola quote teoriche dalle regole di riparto attive">
+                        {suggLoading
+                          ? <><i className="ti ti-loader" /> Calcolo…</>
+                          : <><i className="ti ti-calculator" /> Suggerisci da regole</>}
+                      </Btn>
+                    )}
                   </div>
                   <RipartoEditor
                     assocs={assocModal}
@@ -1729,17 +1912,45 @@ export function SpeseProprietari() {
       {hashDupIntercept && (
         <Modal
           title=""
-          onClose={() => { setHashDupIntercept(null); clearPendingFile(); }}
+          onClose={() => {
+            setHashDupIntercept(null);
+            clearPendingFile();
+            const qItem = currentQueueItemRef.current;
+            if (qItem) {
+              setSpQueue(prev => {
+                const next = prev.filter(q => q.id !== qItem.id);
+                setTimeout(() => apriProssimoSP(next), 150);
+                return next;
+              });
+              currentQueueItemRef.current = null;
+            }
+          }}
           width={640}
           footer={<>
-            <Btn variant="ghost" onClick={() => { setHashDupIntercept(null); clearPendingFile(); }}>
+            <Btn variant="ghost" onClick={() => {
+              setHashDupIntercept(null);
+              clearPendingFile();
+              const qItem = currentQueueItemRef.current;
+              if (qItem) {
+                setSpQueue(prev => {
+                  const next = prev.filter(q => q.id !== qItem.id);
+                  setTimeout(() => apriProssimoSP(next), 150);
+                  return next;
+                });
+                currentQueueItemRef.current = null;
+              }
+            }}>
               <i className="ti ti-x" /> Annulla
             </Btn>
             <div style={{ flex: 1 }} />
             <Btn variant="danger" onClick={() => {
               const wasFromForm = hashDupIntercept?.fromForm;
               setHashDupIntercept(null);
-              if (!wasFromForm) apriNuovo();
+              if (!wasFromForm) {
+                const qItem = currentQueueItemRef.current;
+                const prefill = qItem?.data ? _mapSPExtract(qItem.data.extract) : {};
+                apriNuovo(prefill);
+              }
             }}>
               <i className="ti ti-alert-triangle" /> Procedi comunque
             </Btn>
@@ -1758,7 +1969,7 @@ export function SpeseProprietari() {
               </div>
               <div style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.5 }}>
                 L'impronta digitale (SHA-256) di <strong>{hashDupIntercept.nome_file}</strong> corrisponde
-                esattamente a {(hashDupIntercept.duplicati_allegati.length + hashDupIntercept.duplicati_documenti.length)} documento/i già archiviato/i.
+                esattamente a {(hashDupIntercept.duplicati_allegati.length + hashDupIntercept.duplicati_documenti.length + (hashDupIntercept.duplicati_archivio?.length || 0))} documento/i già archiviato/i.
               </div>
               <div style={{ fontSize: 12, color: "var(--text2)", marginTop: 6 }}>
                 Questo controllo è basato sul contenuto del file, non sul nome.
@@ -1897,6 +2108,46 @@ export function SpeseProprietari() {
                     <div style={{ fontSize: 10, color: "var(--text2)", fontWeight: 700,
                                   textTransform: "uppercase", letterSpacing: 1, marginBottom: 2 }}>Note AI</div>
                     <div style={{ color: "var(--text2)", fontStyle: "italic" }}>{d.note}</div>
+                  </div>
+                )}
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <div style={{ fontSize: 10, color: "var(--text2)", fontWeight: 700,
+                                textTransform: "uppercase", letterSpacing: 1, marginBottom: 2 }}>Nome file</div>
+                  <div style={{ fontSize: 11, color: "var(--text2)" }}>
+                    <i className="ti ti-paperclip" style={{ marginRight: 4 }} />{d.nome_file}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {/* Archivio documentale */}
+          {(hashDupIntercept.duplicati_archivio || []).map((d) => (
+            <div key={d.id} style={{
+              border: "1px solid rgba(220,38,38,0.4)", borderRadius: 10,
+              overflow: "hidden", marginBottom: 12,
+            }}>
+              <div style={{ background: "rgba(220,38,38,0.08)", padding: "8px 14px",
+                            fontSize: 11, fontWeight: 700, color: "#dc2626",
+                            textTransform: "uppercase", letterSpacing: 1,
+                            display: "flex", alignItems: "center", gap: 6 }}>
+                <i className="ti ti-archive" />
+                Già presente nell&apos;archivio documentale
+              </div>
+              <div style={{ padding: "12px 14px", display: "grid",
+                            gridTemplateColumns: "1fr 1fr 1fr", gap: "8px 16px", fontSize: 13 }}>
+                {d.tipo_nome && (
+                  <div>
+                    <div style={{ fontSize: 10, color: "var(--text2)", fontWeight: 700,
+                                  textTransform: "uppercase", letterSpacing: 1, marginBottom: 2 }}>Tipo</div>
+                    <div>{d.tipo_nome}</div>
+                  </div>
+                )}
+                {d.created_at && (
+                  <div>
+                    <div style={{ fontSize: 10, color: "var(--text2)", fontWeight: 700,
+                                  textTransform: "uppercase", letterSpacing: 1, marginBottom: 2 }}>Archiviato il</div>
+                    <div>{toITdate(d.created_at)}</div>
                   </div>
                 )}
                 <div style={{ gridColumn: "1 / -1" }}>

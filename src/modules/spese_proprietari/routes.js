@@ -7,6 +7,11 @@ import * as repo   from "./repo.js";
 import * as allegatoRepo from "./allegatoRepo.js";
 import { salvaPdf, leggiPdf, eliminaPdf, pdfEsiste,
          salvaAllegato, leggiAllegato, eliminaAllegato } from "../../shared/storage.js";
+import { query }            from "../../shared/db/pool.js";
+import { regolaAttivaProp, calcolaQuoteProp } from "../contabilita/ripartiRepo.js";
+import { extract }          from "../../shared/extractor.js";
+import * as appRepo         from "../anagrafica/appartamentiRepo.js";
+import { tipiSpesaRepo }    from "../anagrafica/tipiSpesaRepo.js";
 
 const up = multer({
   storage: multer.memoryStorage(),
@@ -56,6 +61,95 @@ speseProprietariRouter.delete("/:id", h(async (req, res) => {
   eliminaPdf(req.params.id); // rimuove eventuale vecchio file legacy
   await repo.remove(req.params.id); // ON DELETE CASCADE rimuove allegati dalla tabella
   res.status(204).end();
+}));
+
+speseProprietariRouter.get("/:id/riparto", h(async (req, res) => {
+  const rows = await query(
+    `SELECT s.*, ts.descrizione AS tipo_spesa_nome
+     FROM spese_proprietari s
+     LEFT JOIN tipi_spesa ts ON ts.id = s.tipo_spesa_id
+     WHERE s.id = $1`,
+    [req.params.id]
+  );
+  const spesa = rows[0];
+  if (!spesa) return res.status(404).json({ error: "Non trovato" });
+
+  const mese = spesa.mese_competenza
+    ? String(spesa.mese_competenza).slice(0, 7)
+    : spesa.data_pagamento
+    ? String(spesa.data_pagamento).slice(0, 7)
+    : spesa.validita_da
+    ? String(spesa.validita_da).slice(0, 7)
+    : null;
+
+  if (!mese || !spesa.appartamento_id || spesa.importo == null) {
+    return res.json({ proprietari: [], totale: 0, regola_descrizione: null, motivo: "Dati spesa incompleti" });
+  }
+
+  const props = await query(
+    `SELECT ap.proprietario_id, p.nome, p.cognome, ap.percentuale_proprieta
+     FROM appartamento_proprietari ap
+     JOIN proprietari p ON p.id = ap.proprietario_id
+     WHERE ap.appartamento_id = $1
+       AND ap.data_inizio <= $2::date
+       AND (ap.data_fine IS NULL OR ap.data_fine >= $2::date)
+     ORDER BY p.cognome, p.nome`,
+    [spesa.appartamento_id, mese + "-01"]
+  );
+
+  if (!props.length) {
+    return res.json({ proprietari: [], totale: 0, regola_descrizione: null, motivo: "Nessun proprietario attivo" });
+  }
+
+  const regola  = await regolaAttivaProp(spesa.appartamento_id, spesa.tipo_spesa_id || null, mese);
+  const importo = parseFloat(spesa.importo);
+  const quote   = calcolaQuoteProp(importo, props, regola);
+
+  const proprietari = props.map(p => ({
+    id:           p.proprietario_id,
+    nome:         p.nome + (p.cognome ? " " + p.cognome : ""),
+    quota_teorica: Math.round((quote[p.proprietario_id] || 0) * 100) / 100,
+    percentuale:  importo > 0 ? Math.round((quote[p.proprietario_id] || 0) / importo * 10000) / 100 : 0,
+  }));
+
+  res.json({
+    proprietari,
+    totale:             importo,
+    regola_descrizione: regola ? (regola.tipo_spesa_nome || regola.descrizione || "Regola attiva") : null,
+  });
+}));
+
+// ── Estrazione dati da PDF (pre-compila il form) ──────────────────────────────
+speseProprietariRouter.post("/extract", up.single("file"), h(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "Nessun file" });
+
+  const [apps, tipi] = await Promise.all([
+    appRepo.listAll(),
+    tipiSpesaRepo.listAll(),
+  ]);
+
+  const e = await extract(req.file.buffer, req.file.originalname, {
+    appartamenti: apps.map(a => ({ id: a.id, nome: a.nome, via: a.via || "", citta: a.citta || "" })),
+    tipi:         tipi.map(t => t.descrizione),
+  });
+
+  const tipoObj = tipi.find(t => t.descrizione === e.tipo_descrizione);
+  const mese    = e.periodo_da ? String(e.periodo_da).slice(0, 7) : null;
+
+  res.json({
+    importo:            e.importo,
+    fornitore:          e.fornitore,
+    numero_fattura:     e.numero_doc,
+    mese_competenza:    mese,
+    tipo_spesa_id:      tipoObj?.id    || null,
+    tipo_descrizione:   e.tipo_descrizione,
+    appartamento_id:    (e.match_score != null && e.match_score >= 0.6) ? e.appartamento_id : null,
+    appartamento_nome:  e.appartamento_nome,
+    match_score:        e.match_score,
+    confidenza:         e.confidenza,
+    metodo_estrazione:  e.metodo_estrazione,
+    nome_file:          e.nome_file,
+  });
 }));
 
 // ── Verifica hash senza salvare (controllo duplicati preventivo) ──────────────
