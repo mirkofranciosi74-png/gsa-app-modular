@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { appartamentiApi, documentiApi, tipiSpesaApi, proprietariApi, associazioniApi, archivioApi } from "../api.js";
 import { Btn, StatoBadge, Confirm, Field, SectionHeader, Modal } from "../components/ui.jsx";
-import { euro, mesL, uid, toITdate } from "../utils/formatters.js";
+import { euro, mesL, toITdate } from "../utils/formatters.js";
+import { usePdfQueue } from "../hooks/usePdfQueue.js";
+import { PdfQueuePanel } from "../components/PdfQueuePanel.jsx";
 
 // ── Modal intercetta duplicati hash ───────────────────────────────────────────
 const FLBL = { fontSize: 10, color: "var(--text2)", fontWeight: 700,
@@ -115,7 +117,6 @@ export function Documenti() {
   const [bulkEdit, setBulkEdit] = useState(false);
   const [editItem, setEdit]     = useState(null);
   const [rename,   setRename] = useState(null); // { id, nomeCorrente }
-  const [queue,    setQueue] = useState([]);
   const [buchi,    setBuchi] = useState([]);
   const [buchiOpen,setBuchiOpen] = useState(true);
   const [bucheIgnorate, setBucheIgnorate] = useState(() => {
@@ -125,8 +126,7 @@ export function Documenti() {
 
   const [hashDupIntercept, setHashDupIntercept] = useState(null); // { items, onProceed }
 
-  const processingRef = useRef(false);
-  const fileRef       = useRef();
+  const fileRef = useRef();
 
   const load = useCallback(() =>
     Promise.all([
@@ -141,6 +141,24 @@ export function Documenti() {
       tipiSpesaApi.list(),
     ]).then(([d, a, t]) => { setDocs(d); setApps(a); setTipi(t); }),
   [filtro]);
+
+  const { queue, setQueue, addFiles: addDocFiles, removeItem: removeDocItem, clearQueue: clearDocQueue, apriProssimo } = usePdfQueue({
+    extractFn: (file) => documentiApi.extract(file),
+    onReady: (item) => {
+      const doc = item.data;
+      let pdfUrl = item.pdfUrl;
+      if (doc?.pdf_base64) {
+        try {
+          pdfUrl = URL.createObjectURL(new Blob(
+            [Uint8Array.from(atob(doc.pdf_base64), c => c.charCodeAt(0))],
+            { type: "application/pdf" }
+          ));
+        } catch {}
+      }
+      setEdit({ doc, pdfUrl, queueId: item.id });
+    },
+    onAfterBatch: load,
+  });
 
   useEffect(() => { load(); }, [load]);
 
@@ -174,30 +192,13 @@ export function Documenti() {
     return list;
   }, [docs, ricerca, sort]);
 
-  // ── Apertura prossimo documento dalla coda ─────────────────────────────────
-  const apriProssimo = useCallback(coda => {
-    const next = coda.find(q => q.stato === "pronto");
-    if (next) setEdit({ doc: next.doc, pdfUrl: next.pdfUrl, queueId: next.id });
-  }, []);
-
-  // ── Avvia elaborazione OCR ─────────────────────────────────────────────────
-  function avviaElaborazione(files) {
-    if (!files.length) return;
-    const nuovi = files.map(f => ({ id: uid(), nomeFile: f.name, stato: "attesa", doc: null, pdfUrl: null, _file: f }));
-    setQueue(prev => {
-      const ag = [...prev, ...nuovi];
-      elabora(ag, nuovi.map(n => n.id));
-      return ag;
-    });
-  }
-
   // ── Controlla hash duplicato, poi procede ─────────────────────────────────
   async function checkHashAndIntercept(files, onNoDup, onProceed) {
     const duplicati = [], puliti = [];
     for (const f of files) {
       try {
-        const r = await documentiApi.checkHash(f);
-        if (r.duplicati_documenti?.length || r.duplicati_allegati?.length) {
+        const r = await documentiApi.checkHashGlobal(f);
+        if (r.duplicati_documenti?.length || r.duplicati_allegati?.length || r.duplicati_archivio?.length) {
           duplicati.push({ file: f, warning: r });
         } else {
           puliti.push(f);
@@ -211,7 +212,7 @@ export function Documenti() {
   // ── Gestione upload file (pulsante Carica PDF principale) ─────────────────
   async function handleFiles(files) {
     if (!files.length) return;
-    checkHashAndIntercept(files, avviaElaborazione, avviaElaborazione);
+    checkHashAndIntercept(files, addDocFiles, addDocFiles);
   }
 
   // ── Upload PDF su spesa esistente (pulsante riga tabella) ─────────────────
@@ -245,33 +246,6 @@ export function Documenti() {
   const buchiVisibili = buchi.filter(b => !bucheIgnorate.has(bucoKey(b)));
   const buchiNascosti = buchi.length - buchiVisibili.length;
 
-  async function elabora(codaInit, ids) {
-    if (processingRef.current) return;
-    processingRef.current = true;
-    let coda = [...codaInit];
-    for (const id of ids) {
-      const item = coda.find(q => q.id === id);
-      if (!item || item.stato !== "attesa") continue;
-      coda = coda.map(q => q.id === id ? { ...q, stato: "caricamento" } : q);
-      setQueue([...coda]);
-      try {
-        const localUrl = URL.createObjectURL(item._file);
-        const doc      = await documentiApi.extract(item._file);
-        const pdfUrl   = doc.pdf_base64
-          ? URL.createObjectURL(new Blob([Uint8Array.from(atob(doc.pdf_base64), c => c.charCodeAt(0))], { type: "application/pdf" }))
-          : localUrl;
-        coda = coda.map(q => q.id === id ? { ...q, stato: "pronto", doc, pdfUrl, _file: null } : q);
-        setQueue([...coda]);
-      } catch (e) {
-        coda = coda.map(q => q.id === id ? { ...q, stato: "errore", _errore: e.message, _file: null } : q);
-        setQueue([...coda]);
-      }
-    }
-    processingRef.current = false;
-    load();
-    apriProssimo(coda);
-  }
-
   // ── Salva documento validato ───────────────────────────────────────────────
   async function saveEdit(doc) {
     try {
@@ -285,7 +259,7 @@ export function Documenti() {
       if (doc.id) {
         await documentiApi.update(doc.id, { ...doc, nome_file: doc.nome_file.trim(), stato, validato: true });
         setQueue(prev => {
-          const nuova = prev.filter(q => !(q.doc && q.doc.id === doc.id));
+          const nuova = prev.filter(q => !(q.data && q.data.id === doc.id));
           setTimeout(() => apriProssimo(nuova), 150);
           return nuova;
         });
@@ -302,8 +276,8 @@ export function Documenti() {
     if (!editItem) return;
     setEdit(null);
     setQueue(prev => {
-      const corrente = prev.find(q => q.doc && q.doc.id === editItem.doc?.id);
-      const senza    = prev.filter(q => !(q.doc && q.doc.id === editItem.doc?.id));
+      const corrente = prev.find(q => q.data && q.data.id === editItem.doc?.id);
+      const senza    = prev.filter(q => !(q.data && q.data.id === editItem.doc?.id));
       const nuova    = corrente ? [...senza, corrente] : senza;
       setTimeout(() => apriProssimo(nuova), 150);
       return nuova;
@@ -349,9 +323,7 @@ export function Documenti() {
     } catch (e) { alert("Errore: " + e.message); }
   }
 
-  const pronti   = queue.filter(q => q.stato === "pronto").length;
-  const inAttesa = queue.filter(q => q.stato === "attesa" || q.stato === "caricamento").length;
-  const nCrit    = docs.filter(d => d.stato === "da_verificare" || d.stato === "errore").length;
+  const nCrit = docs.filter(d => d.stato === "da_verificare" || d.stato === "errore").length;
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -374,64 +346,13 @@ export function Documenti() {
       />
 
       {/* Coda upload */}
-      {queue.length > 0 && (
-        <div style={{ marginBottom: 12, border: "1px solid var(--accent)", borderRadius: 8, overflow: "hidden" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px",
-                        background: "rgba(59,130,246,0.08)" }}>
-            <i className="ti ti-stack" style={{ color: "var(--accent)", fontSize: 18 }} />
-            <span style={{ fontWeight: 600, fontSize: 13 }}>
-              Coda — {queue.length} document{queue.length > 1 ? "i" : "o"}
-            </span>
-            {inAttesa > 0 && (
-              <span style={{ fontSize: 12, color: "var(--text2)" }}>
-                <i className="ti ti-loader" style={{ marginRight: 4 }} />{inAttesa} in elaborazione…
-              </span>
-            )}
-            {pronti > 0 && (
-              <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20,
-                             background: "#713f12", color: "#eab308", border: "1px solid #eab308" }}>
-                {pronti} da validare
-              </span>
-            )}
-            <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-              {pronti > 0 && (
-                <Btn variant="primary" size="sm" onClick={() => apriProssimo(queue)}>
-                  <i className="ti ti-edit" /> Valida prossimo
-                </Btn>
-              )}
-              <Btn variant="ghost" size="sm" onClick={() => setQueue([])}><i className="ti ti-x" /></Btn>
-            </div>
-          </div>
-          <div style={{ maxHeight: 200, overflowY: "auto" }}>
-            {queue.map(q => (
-              <div key={q.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 14px",
-                                        borderBottom: "1px solid var(--bg3)",
-                                        background: q.stato === "pronto" ? "rgba(234,179,8,0.06)"
-                                                  : q.stato === "errore" ? "rgba(239,68,68,0.06)" : "transparent" }}>
-                <i className={`ti ${q.stato === "caricamento" ? "ti-loader" : q.stato === "pronto" ? "ti-alert-triangle"
-                                  : q.stato === "errore" ? "ti-alert-circle" : "ti-clock"}`}
-                   style={{ fontSize: 14, flexShrink: 0,
-                             color: q.stato === "pronto" ? "var(--yellow)" : q.stato === "errore" ? "var(--red)" : "var(--text2)" }} />
-                <span style={{ flex: 1, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis",
-                                whiteSpace: "nowrap", fontWeight: 500 }}>{q.nomeFile}</span>
-                <span style={{ fontSize: 11, color: "var(--text2)", flexShrink: 0 }}>
-                  {q.stato === "attesa" ? "In attesa" : q.stato === "caricamento" ? "Caricamento…"
-                    : q.stato === "pronto" ? "Da validare" : q.stato === "errore" ? q._errore : "Elaborato"}
-                </span>
-                {q.stato === "pronto" && (
-                  <Btn variant="secondary" size="sm"
-                       onClick={() => setEdit({ doc: q.doc, pdfUrl: q.pdfUrl, queueId: q.id })}>
-                    <i className="ti ti-edit" /> Valida
-                  </Btn>
-                )}
-                <Btn variant="ghost" size="sm" onClick={() => setQueue(p => p.filter(x => x.id !== q.id))}>
-                  <i className="ti ti-x" />
-                </Btn>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <PdfQueuePanel
+        queue={queue}
+        onValida={item => setEdit({ doc: item.data, pdfUrl: item.pdfUrl, queueId: item.id })}
+        onRemove={removeDocItem}
+        onClear={clearDocQueue}
+        onProssimo={() => apriProssimo(queue)}
+      />
 
       {nCrit > 0 && (
         <div className="alert alert-warn" style={{ marginBottom: 12 }}>
@@ -765,7 +686,16 @@ export function Documenti() {
           queueLeft={queue.filter(q => q.stato === "pronto").length}
           onSave={saveEdit}
           onSkip={queue.filter(q => q.stato === "pronto").length > 1 ? salta : null}
-          onClose={() => setEdit(null)}
+          onClose={async () => {
+            // Se il modal era aperto dalla coda il documento è già stato creato
+            // dall'endpoint /extract — va eliminato se l'utente annulla
+            if (editItem.queueId && editItem.doc?.id) {
+              try { await documentiApi.delete(editItem.doc.id); } catch {}
+              removeDocItem(editItem.queueId);
+              load();
+            }
+            setEdit(null);
+          }}
         />
       )}
       {rename && (
@@ -921,6 +851,9 @@ function DocEditModal({ doc: initDoc, pdfUrl: initPdfUrl, apps, tipi, queueLeft 
   const [hashDupIntercept, setHashDupIntercept] = useState(null);
   const pdfInputRef                  = useRef();
   const [proprietari,  setProp]      = useState([]);
+  const [riparto,      setRiparto]   = useState(null);   // null | { inquilini, totale, regola_descrizione, motivo }
+  const [ripartoOpen,  setRipartoOpen] = useState(false);
+  const [ripartoLoading, setRipartoLoading] = useState(false);
 
   useEffect(() => {
     proprietariApi.list().then(setProp).catch(() => {});
@@ -943,8 +876,8 @@ function DocEditModal({ doc: initDoc, pdfUrl: initPdfUrl, apps, tipi, queueLeft 
   async function uploadPdf(file) {
     if (!doc.id || !file) return;
     try {
-      const r = await documentiApi.checkHash(file);
-      if (r.duplicati_documenti?.length || r.duplicati_allegati?.length) {
+      const r = await documentiApi.checkHashGlobal(file);
+      if (r.duplicati_documenti?.length || r.duplicati_allegati?.length || r.duplicati_archivio?.length) {
         setHashDupIntercept({ items: [{ file, warning: r }], onProceed: () => doUploadPdf(file) });
         return;
       }
@@ -960,6 +893,19 @@ function DocEditModal({ doc: initDoc, pdfUrl: initPdfUrl, apps, tipi, queueLeft 
       .then(r => { if (r?.proprietario_id) setDoc(p => ({ ...p, pagato_da_proprietario_id: r.proprietario_id })); })
       .catch(() => {});
   }, [doc.appartamento_id, doc.periodo_da]);
+
+  useEffect(() => { setRiparto(null); setRipartoOpen(false); }, [doc.appartamento_id, doc.tipo_spesa_id, doc.periodo_da, doc.importo]);
+
+  async function caricaRiparto() {
+    if (!doc.id) return;
+    setRipartoLoading(true);
+    try {
+      const r = await documentiApi.riparto(doc.id);
+      setRiparto(r);
+      setRipartoOpen(true);
+    } catch (e) { alert("Errore: " + e.message); }
+    finally { setRipartoLoading(false); }
+  }
 
   const sd       = v => setDoc(p => ({ ...p, ...v }));
   const appOpts  = apps.map(a => ({ value: a.id, label: a.nome }));
@@ -1019,7 +965,7 @@ function DocEditModal({ doc: initDoc, pdfUrl: initPdfUrl, apps, tipi, queueLeft 
                          if (!confirm("Eliminare il file PDF? L'operazione non è reversibile.")) return;
                          try {
                            await documentiApi.deletePdf(doc.id);
-                           setLocalPdfUrl(null);
+                           setLocalPdf(null);
                            setShowPdf(false);
                          } catch (e) { alert("Errore: " + e.message); }
                        }}>
@@ -1118,6 +1064,67 @@ function DocEditModal({ doc: initDoc, pdfUrl: initPdfUrl, apps, tipi, queueLeft 
                 <input value={doc.numero_doc || ""} onChange={e => sd({ numero_doc: e.target.value })}
                        placeholder="Es. 2024/00123" />
               </Field>
+
+              {/* ── Riparto tra inquilini ── */}
+              {doc.id && (
+                <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!ripartoOpen && !riparto) caricaRiparto();
+                      else setRipartoOpen(o => !o);
+                    }}
+                    style={{ width: "100%", display: "flex", alignItems: "center", gap: 8,
+                             padding: "9px 12px", background: "var(--bg3)", border: "none",
+                             cursor: "pointer", color: "var(--text1)", fontSize: 13, fontWeight: 600 }}>
+                    <i className="ti ti-calculator" style={{ color: "var(--accent)" }} />
+                    Riparto tra inquilini
+                    {ripartoLoading && <i className="ti ti-loader" style={{ marginLeft: 4, fontSize: 12, color: "var(--text2)" }} />}
+                    <i className={`ti ${ripartoOpen ? "ti-chevron-up" : "ti-chevron-down"}`}
+                       style={{ marginLeft: "auto", fontSize: 12, color: "var(--text2)" }} />
+                  </button>
+                  {ripartoOpen && riparto && (
+                    <div style={{ padding: "10px 12px" }}>
+                      {riparto.motivo ? (
+                        <p style={{ fontSize: 12, color: "var(--text2)", margin: 0 }}>
+                          <i className="ti ti-info-circle" style={{ marginRight: 4 }} />{riparto.motivo}
+                        </p>
+                      ) : (
+                        <>
+                          {riparto.regola_descrizione && (
+                            <p style={{ fontSize: 11, color: "var(--text2)", marginBottom: 8 }}>
+                              <i className="ti ti-scale" style={{ marginRight: 4 }} />
+                              Regola: <strong>{riparto.regola_descrizione}</strong>
+                            </p>
+                          )}
+                          <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
+                            <thead>
+                              <tr style={{ color: "var(--text2)", fontSize: 10, textTransform: "uppercase" }}>
+                                <th style={{ textAlign: "left",  padding: "3px 6px" }}>Inquilino</th>
+                                <th style={{ textAlign: "right", padding: "3px 6px" }}>%</th>
+                                <th style={{ textAlign: "right", padding: "3px 6px" }}>Quota</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {riparto.inquilini.map(c => (
+                                <tr key={c.id} style={{ borderTop: "1px solid var(--bg3)" }}>
+                                  <td style={{ padding: "4px 6px" }}>{c.nome}</td>
+                                  <td style={{ textAlign: "right", padding: "4px 6px", color: "var(--text2)" }}>
+                                    {c.percentuale.toFixed(1)}%
+                                  </td>
+                                  <td style={{ textAlign: "right", padding: "4px 6px", fontWeight: 600 }}>
+                                    {euro(c.quota)}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

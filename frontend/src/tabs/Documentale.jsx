@@ -5,6 +5,21 @@ import { toITdate } from "../utils/formatters.js";
 import ImportaCartellaModal from "../components/ImportaCartellaModal.jsx";
 import DocPreview           from "../components/DocPreview.jsx";
 
+// Normalizza il risultato di checkHashGlobal nel formato che ArchivioHashDupModal si aspetta:
+// { id, nome_file, created_at, tipo_nome, associazioni }
+function _combinaArchivioHashDups(result) {
+  const archivio  = (result.duplicati_archivio  || []);
+  const documenti = (result.duplicati_documenti || []).map(d => ({
+    id: d.id, nome_file: d.nome_file, created_at: d.data, tipo_nome: d.tipo_spesa || "Documento spesa inquilini",
+    associazioni: [{ entita_tipo: "appartamento", entita_id: null, entita_nome: d.appartamento_nome }],
+  }));
+  const allegati  = (result.duplicati_allegati  || []).map(a => ({
+    id: a.id, nome_file: a.nome_file, created_at: a.data_pagamento, tipo_nome: a.tipo_spesa || "Allegato spesa proprietari",
+    associazioni: [{ entita_tipo: "appartamento", entita_id: null, entita_nome: a.appartamento_nome }],
+  }));
+  return [...archivio, ...documenti, ...allegati];
+}
+
 // ── Modal intercetta duplicati hash archivio ──────────────────────────────────
 function ArchivioHashDupModal({ file, duplicati, onProceed, onCancel }) {
   return (
@@ -283,10 +298,11 @@ function Archivio() {
 
   async function handleUpload(file) {
     try {
-      const result = await archivioApi.checkHash(file);
-      if (result.duplicati?.length) {
+      const result = await documentiApi.checkHashGlobal(file);
+      const dupList = _combinaArchivioHashDups(result);
+      if (dupList.length) {
         setHashIntercept({
-          file, duplicati: result.duplicati,
+          file, duplicati: dupList,
           onProceed: () => {
             setHashIntercept(null);
             setModal({ mode: "upload", file, tipDocId: "", note: "", associazioni: [] });
@@ -319,11 +335,12 @@ function Archivio() {
     let cancelled = false;
     (async () => {
       try {
-        const result = await archivioApi.checkHash(current.file);
+        const result = await documentiApi.checkHashGlobal(current.file);
         if (cancelled) return;
-        if (result.duplicati?.length) {
+        const dupList = _combinaArchivioHashDups(result);
+        if (dupList.length) {
           setHashIntercept({
-            file: current.file, duplicati: result.duplicati,
+            file: current.file, duplicati: dupList,
             onProceed: () => {
               setHashIntercept(null);
               setModal({ mode: "upload", file: current.file, tipDocId: "", note: "", associazioni: [], _bulk: true });
@@ -842,10 +859,11 @@ export function DocListEntita({ entitaTipo, entitaId, label }) {
 
   async function handleUpload(file) {
     try {
-      const result = await archivioApi.checkHash(file);
-      if (result.duplicati?.length) {
+      const result = await documentiApi.checkHashGlobal(file);
+      const dupList = _combinaArchivioHashDups(result);
+      if (dupList.length) {
         setHashIntercept({
-          file, duplicati: result.duplicati,
+          file, duplicati: dupList,
           onProceed: () => {
             setHashIntercept(null);
             setModal({
