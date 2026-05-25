@@ -564,6 +564,16 @@ cd frontend && npm install && cd ..
 npm run db:migrate
 ```
 
+#### Creazione primo utente admin
+
+```bash
+node scripts/create-admin.js tua@email.com latuapassword
+```
+
+Lo script crea un utente con ruolo `admin` che può accedere subito con email e password dalla pagina di login. La password deve essere di almeno 6 caratteri.
+
+> Puoi saltare questo passo se intendi usare Google OAuth: il primo accesso con l'account corrispondente a `ADMIN_EMAIL` nel `.env` riceve automaticamente il ruolo `admin`.
+
 #### Avvio
 
 ```bash
