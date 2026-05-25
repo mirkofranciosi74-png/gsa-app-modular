@@ -1,8 +1,30 @@
+import { useState } from "react";
 import { authApi } from "../api.js";
 
 const APPLE_CONFIGURED = !!(import.meta.env.VITE_APPLE_CONFIGURED);
 
-export default function Login() {
+export default function Login({ onToken }) {
+  const [showLocal, setShowLocal] = useState(false);
+  const [email,    setEmail]    = useState("");
+  const [password, setPassword] = useState("");
+  const [loading,  setLoading]  = useState(false);
+  const [err,      setErr]      = useState("");
+
+  async function handleLocal(e) {
+    e.preventDefault();
+    setErr("");
+    setLoading(true);
+    try {
+      const { token } = await authApi.loginLocal(email, password);
+      localStorage.setItem("gsa_token", token);
+      window.location.reload();
+    } catch (ex) {
+      setErr(ex.message || "Credenziali non valide");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <div style={{
       minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
@@ -12,7 +34,7 @@ export default function Login() {
         width: 380, background: "var(--bg2)", borderRadius: 16,
         border: "1px solid var(--border)", padding: "40px 32px",
         boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
-        display: "flex", flexDirection: "column", alignItems: "center", gap: 24,
+        display: "flex", flexDirection: "column", alignItems: "center", gap: 20,
       }}>
         {/* Logo */}
         <div style={{ textAlign: "center" }}>
@@ -69,6 +91,70 @@ export default function Login() {
           )}
         </button>
 
+        {/* Separatore */}
+        <div style={{
+          width: "100%", display: "flex", alignItems: "center", gap: 10,
+          color: "var(--text2)", fontSize: 11,
+        }}>
+          <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
+          oppure
+          <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
+        </div>
+
+        {/* Login locale */}
+        {!showLocal ? (
+          <button
+            onClick={() => setShowLocal(true)}
+            style={{
+              width: "100%", padding: "11px 20px",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+              background: "transparent", color: "var(--text2)",
+              border: "1px solid var(--border)",
+              borderRadius: 10, cursor: "pointer", fontSize: 13,
+              transition: "border-color 0.15s, color 0.15s",
+            }}
+            onMouseOver={e => { e.currentTarget.style.borderColor = "var(--accent)"; e.currentTarget.style.color = "var(--accent)"; }}
+            onMouseOut={e  => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text2)"; }}
+          >
+            <i className="ti ti-lock" style={{ fontSize: 16 }} />
+            Accedi con email e password
+          </button>
+        ) : (
+          <form onSubmit={handleLocal} style={{ width: "100%", display: "flex", flexDirection: "column", gap: 10 }}>
+            <input
+              type="email" required placeholder="Email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              style={INPUT}
+              autoFocus
+            />
+            <input
+              type="password" required placeholder="Password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              style={INPUT}
+            />
+            {err && (
+              <p style={{ color: "#c53030", fontSize: 12, margin: 0 }}>{err}</p>
+            )}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => { setShowLocal(false); setErr(""); setEmail(""); setPassword(""); }}
+                style={{ ...BTN, flex: 1, background: "transparent", border: "1px solid var(--border)", color: "var(--text2)" }}
+              >
+                Annulla
+              </button>
+              <button
+                type="submit" disabled={loading}
+                style={{ ...BTN, flex: 2, background: "var(--accent)", color: "#fff", border: "none", opacity: loading ? 0.7 : 1 }}
+              >
+                {loading ? "Accesso…" : "Accedi"}
+              </button>
+            </div>
+          </form>
+        )}
+
         <p style={{ fontSize: 11, color: "var(--text2)", textAlign: "center", margin: 0 }}>
           L'accesso è riservato agli utenti autorizzati.
           <br />Contatta l'amministratore per richiedere l'accesso.
@@ -96,3 +182,14 @@ function AppleIcon() {
     </svg>
   );
 }
+
+const INPUT = {
+  width: "100%", padding: "10px 12px", borderRadius: 8, fontSize: 13,
+  border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)",
+  boxSizing: "border-box", outline: "none",
+};
+
+const BTN = {
+  padding: "10px 16px", borderRadius: 8, fontSize: 13,
+  fontWeight: 600, cursor: "pointer", transition: "opacity 0.15s",
+};

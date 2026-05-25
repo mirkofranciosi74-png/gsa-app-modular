@@ -1,4 +1,5 @@
 import { query, transaction } from "../../shared/db/pool.js";
+import bcrypt from "bcryptjs";
 
 export const userRepo = {
 
@@ -130,6 +131,26 @@ export const userRepo = {
        WHERE vi.user_id = $1
        ORDER BY c.cognome, c.nome`, [userId]
     );
+  },
+
+  async setPassword(userId, plainPassword) {
+    const hash = await bcrypt.hash(plainPassword, 12);
+    await query(`UPDATE users SET password_hash=$2 WHERE id=$1`, [userId, hash]);
+  },
+
+  async removePassword(userId) {
+    await query(`UPDATE users SET password_hash=NULL WHERE id=$1`, [userId]);
+  },
+
+  async verifyPassword(email, plainPassword) {
+    const rows = await query(
+      `SELECT * FROM users WHERE email=$1 AND attivo=true`,
+      [email.toLowerCase().trim()]
+    );
+    const user = rows[0];
+    if (!user || !user.password_hash) return null;
+    const ok = await bcrypt.compare(plainPassword, user.password_hash);
+    return ok ? user : null;
   },
 
   async setInquilini(userId, ids) {

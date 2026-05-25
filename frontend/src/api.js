@@ -470,6 +470,16 @@ const authFetch = (path, opts = {}) => {
 export const authApi = {
   loginGoogle: () => { window.location.href = `${BASE}/auth/google`; },
   loginApple:  () => { window.location.href = `${BASE}/auth/apple`; },
+  loginLocal: async (email, password) => {
+    const r = await fetch(`${BASE}/auth/login`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ email, password }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data?.error || `HTTP ${r.status}`);
+    return data;
+  },
   logout:      () => authFetch("/logout", { method: "POST" }),
 
   listUsers:   () => authFetch("/users").then(r => r.json()),
@@ -500,5 +510,10 @@ export const authApi = {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body:    JSON.stringify({ ids }),
+  }).then(r => r.json()),
+  setPassword: (id, password) => authFetch(`/users/${id}/password`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body:    JSON.stringify({ password }),
   }).then(r => r.json()),
 };

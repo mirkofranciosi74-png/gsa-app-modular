@@ -43,6 +43,19 @@ authRouter.get("/me", requireAuth, h(async (req, res) => {
 
 authRouter.post("/logout", (_, res) => res.json({ ok: true }));
 
+// ── Login locale (email + password) ──────────────────────────────────────────
+authRouter.post("/login", h(async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password)
+    return res.status(400).json({ error: "Email e password obbligatorie" });
+
+  const user = await userRepo.verifyPassword(email, password);
+  if (!user)
+    return res.status(401).json({ error: "Credenziali non valide" });
+
+  res.json({ token: signToken(user) });
+}));
+
 // ── Google OAuth ──────────────────────────────────────────────────────────────
 authRouter.get("/google", (req, res) => {
   if (!process.env.GOOGLE_CLIENT_ID) {
@@ -199,6 +212,19 @@ authRouter.delete("/users/:id", requireAuth, requireRole("admin"), h(async (req,
   }
   await userRepo.remove(req.params.id);
   res.status(204).end();
+}));
+
+// Imposta / rimuove password locale (admin)
+authRouter.put("/users/:id/password", requireAuth, requireRole("admin"), h(async (req, res) => {
+  const { password } = req.body;
+  if (password && password.length < 6)
+    return res.status(400).json({ error: "La password deve essere di almeno 6 caratteri" });
+  if (password) {
+    await userRepo.setPassword(req.params.id, password);
+  } else {
+    await userRepo.removePassword(req.params.id);
+  }
+  res.json({ ok: true });
 }));
 
 // Restrizioni viewer

@@ -26,7 +26,7 @@ const TAB_ACCESS = {
   proprietari:       ["admin"],
   componenti:        ["admin"],
   documenti:         ["admin", "editor"],
-  spese_proprietari: ["admin"],
+  spese_proprietari: ["admin", "editor"],
   movimenti:         ["admin", "editor"],
   riparti:           ["admin"],
   documentale:       ["admin", "editor"],

@@ -5,7 +5,7 @@ import { Btn, SectionHeader } from "../components/ui.jsx";
 const RUOLO_LABEL = { admin: "Amministratore", editor: "Editor", viewer: "Visualizzatore" };
 const RUOLO_COLOR = { admin: "#6b46c1", editor: "#2b6cb0", viewer: "#276749" };
 
-const EMPTY_FORM = { email: "", nome: "", cognome: "", ruolo: "viewer" };
+const EMPTY_FORM = { email: "", nome: "", cognome: "", ruolo: "viewer", password: "" };
 
 export function GestioneUtenti() {
   const [users,   setUsers]   = useState([]);
@@ -14,6 +14,12 @@ export function GestioneUtenti() {
   const [form,    setForm]    = useState(EMPTY_FORM);
   const [saving,  setSaving]  = useState(false);
   const [err,     setErr]     = useState("");
+
+  // password modal state
+  const [pwdUser,   setPwdUser]   = useState(null);  // utente di cui si sta impostando la pw
+  const [pwdValue,  setPwdValue]  = useState("");
+  const [pwdSaving, setPwdSaving] = useState(false);
+  const [pwdErr,    setPwdErr]    = useState("");
 
   useEffect(() => {
     authApi.listUsers()
@@ -24,9 +30,17 @@ export function GestioneUtenti() {
   async function addUser(e) {
     e.preventDefault();
     setErr("");
+    if (form.password && form.password.length < 6) {
+      setErr("La password deve essere di almeno 6 caratteri");
+      return;
+    }
     setSaving(true);
     try {
-      const created = await authApi.createUser(form);
+      const { password, ...userData } = form;
+      const created = await authApi.createUser(userData);
+      if (password) {
+        await authApi.setPassword(created.id, password);
+      }
       setUsers(u => [...u, created]);
       setForm(EMPTY_FORM);
       setShowAdd(false);
@@ -53,6 +67,39 @@ export function GestioneUtenti() {
     setUsers(u => u.filter(x => x.id !== user.id));
   }
 
+  function openPwd(user) {
+    setPwdUser(user);
+    setPwdValue("");
+    setPwdErr("");
+  }
+
+  async function savePwd(e) {
+    e.preventDefault();
+    setPwdErr("");
+    setPwdSaving(true);
+    try {
+      await authApi.setPassword(pwdUser.id, pwdValue || null);
+      setPwdUser(null);
+    } catch (ex) {
+      setPwdErr(ex.message || "Errore");
+    } finally {
+      setPwdSaving(false);
+    }
+  }
+
+  async function removePwd() {
+    if (!confirm(`Rimuovere la password locale di ${pwdUser.email}?`)) return;
+    setPwdSaving(true);
+    try {
+      await authApi.setPassword(pwdUser.id, null);
+      setPwdUser(null);
+    } catch (ex) {
+      setPwdErr(ex.message || "Errore");
+    } finally {
+      setPwdSaving(false);
+    }
+  }
+
   if (loading) return <div style={{ padding: 32, color: "var(--text2)" }}>Caricamento…</div>;
 
   return (
@@ -74,10 +121,11 @@ export function GestioneUtenti() {
             Registra nuovo utente
           </p>
           <p style={{ fontSize: 12, color: "var(--text2)", margin: "0 0 16px" }}>
-            L'utente potrà accedere con Google o Apple usando questa email. Il ruolo assegnato sarà attivo al primo accesso.
+            Con password: l'utente accede subito con email e password.
+            Senza password: l'utente accede con Google/Apple usando questa email.
           </p>
           <form onSubmit={addUser}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 10, alignItems: "end" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr auto", gap: 10, alignItems: "end" }}>
               <div>
                 <label style={LBL}>Email *</label>
                 <input
@@ -106,6 +154,15 @@ export function GestioneUtenti() {
                 />
               </div>
               <div>
+                <label style={LBL}>Password <span style={{ fontWeight: 400, opacity: 0.7 }}>(opzionale)</span></label>
+                <input
+                  type="password" placeholder="min. 6 caratteri"
+                  value={form.password}
+                  onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                  style={INPUT}
+                />
+              </div>
+              <div>
                 <label style={LBL}>Ruolo</label>
                 <select
                   value={form.ruolo}
@@ -130,6 +187,53 @@ export function GestioneUtenti() {
               </Btn>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Modal password */}
+      {pwdUser && (
+        <div style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)",
+          display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000,
+        }}>
+          <div style={{
+            background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: 14,
+            padding: "28px 28px 24px", width: 360, boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
+          }}>
+            <p style={{ fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>
+              <i className="ti ti-lock" style={{ marginRight: 6 }} />
+              Password locale
+            </p>
+            <p style={{ fontSize: 12, color: "var(--text2)", margin: "0 0 16px" }}>
+              {pwdUser.email}
+            </p>
+            <form onSubmit={savePwd} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div>
+                <label style={LBL}>Nuova password (min. 6 caratteri)</label>
+                <input
+                  type="password" placeholder="Lascia vuoto per rimuovere"
+                  value={pwdValue}
+                  onChange={e => setPwdValue(e.target.value)}
+                  style={INPUT}
+                  autoFocus
+                />
+              </div>
+              {pwdErr && <p style={{ color: "#c53030", fontSize: 12, margin: 0 }}>{pwdErr}</p>}
+              <div style={{ display: "flex", gap: 8, justifyContent: "space-between", marginTop: 4 }}>
+                <Btn variant="danger" size="sm" type="button" onClick={removePwd} disabled={pwdSaving}>
+                  <i className="ti ti-trash" /> Rimuovi password
+                </Btn>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <Btn variant="secondary" type="button" onClick={() => setPwdUser(null)}>
+                    Annulla
+                  </Btn>
+                  <Btn variant="primary" disabled={pwdSaving || (pwdValue.length > 0 && pwdValue.length < 6)}>
+                    <i className="ti ti-check" /> {pwdSaving ? "…" : "Salva"}
+                  </Btn>
+                </div>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
@@ -208,9 +312,14 @@ export function GestioneUtenti() {
                   </button>
                 </td>
                 <td style={TD}>
-                  <Btn size="sm" variant="danger" onClick={() => removeUser(u)} title="Elimina utente">
-                    <i className="ti ti-trash" />
-                  </Btn>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <Btn size="sm" variant="secondary" onClick={() => openPwd(u)} title="Imposta password locale">
+                      <i className="ti ti-lock" />
+                    </Btn>
+                    <Btn size="sm" variant="danger" onClick={() => removeUser(u)} title="Elimina utente">
+                      <i className="ti ti-trash" />
+                    </Btn>
+                  </div>
                 </td>
               </tr>
             ))}
