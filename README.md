@@ -2,7 +2,7 @@
 
 Applicazione web fullstack per la gestione completa di spese condominiali, affitti, versamenti, conguagli e documentazione relativa a più appartamenti.
 
-**Stack:** Node.js 20 · Express · PostgreSQL 18 · React 18 · Vite 5 · OCR integrato · Report PDF · Autenticazione Google OAuth
+**Stack:** Node.js 20 · Express · PostgreSQL 16 · React 18 · Vite 5 · OCR integrato · Report PDF · Autenticazione Google OAuth + login locale email/password
 
 **Documentazione:**
 - [Schema Entità-Relazioni](docs/er-schema.md)
@@ -20,7 +20,7 @@ Applicazione web fullstack per la gestione completa di spese condominiali, affit
 5. [Prerequisiti di sistema](#5-prerequisiti-di-sistema)
 6. [Installazione e avvio manuale](#6-installazione-e-avvio-manuale)
 7. [Variabili d'ambiente](#7-variabili-dambiente)
-8. [Autenticazione Google OAuth](#8-autenticazione-google-oauth)
+8. [Autenticazione](#8-autenticazione)
 9. [Ruoli e gestione utenti](#9-ruoli-e-gestione-utenti)
 10. [Schema e migrazione del database](#10-schema-e-migrazione-del-database)
 11. [Architettura](#11-architettura)
@@ -54,7 +54,7 @@ FRONTEND_URL=http://localhost
 BACKEND_URL=http://localhost:3001
 ```
 
-> Per ora puoi lasciare `GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET` vuoti: il login Google non sarà disponibile, ma l'applicazione si avvia comunque.
+> Per ora puoi lasciare `GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET` vuoti: il login Google non sarà disponibile, ma l'applicazione si avvia comunque. Potrai usare il login locale con email e password.
 
 ### Avvio
 
@@ -104,7 +104,7 @@ Questa sezione descrive come pubblicare l'applicazione su un server accessibile 
 
 - Server Linux (Ubuntu 22.04+ consigliato) con Docker e Docker Compose installati
 - Un dominio DNS puntato all'IP del server (es. `gsa.mio-dominio.it`)
-- Credenziali Google OAuth (vedi [Sezione 7](#7-autenticazione-google-oauth))
+- Credenziali Google OAuth (vedi [Sezione 8](#8-autenticazione)) — opzionale se si usa solo il login locale
 - (Consigliato) HTTPS tramite nginx/Caddy in reverse proxy o Let's Encrypt
 
 ### 2.1 Preparazione del server
@@ -144,7 +144,7 @@ HTTP_PORT=80          # porta esposta da nginx (80 oppure altra porta)
 # JWT — generare con: openssl rand -hex 64
 JWT_SECRET=incolla-qui-una-stringa-hex-di-128-caratteri
 
-# Google OAuth (vedi Sezione 7)
+# Google OAuth (opzionale — vedi Sezione 8)
 GOOGLE_CLIENT_ID=732897461114-xxxx.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=GOCSPX-xxxx
 
@@ -163,7 +163,6 @@ TESSERACT_LANG=ita
 
 > **Importante:** `BACKEND_URL` viene usato per costruire il `redirect_uri` del callback OAuth.
 > Il valore registrato in Google Console deve essere `${BACKEND_URL}/auth/google/callback`.
-> Se il dominio è `https://gsa.mio-dominio.it`, il callback è `https://gsa.mio-dominio.it/auth/google/callback`.
 
 ### 2.3 Avvio in produzione
 
@@ -171,7 +170,16 @@ TESSERACT_LANG=ita
 docker compose up --build -d
 ```
 
-### 2.4 HTTPS con nginx reverse proxy esterno (consigliato)
+### 2.4 Creazione primo utente admin (senza Google OAuth)
+
+Se non si vuole configurare Google OAuth, si può creare l'utente admin direttamente:
+
+```bash
+# Dopo che il container è avviato
+docker compose exec backend node scripts/create-admin.js admin@esempio.com lapassword
+```
+
+### 2.5 HTTPS con nginx reverse proxy esterno (consigliato)
 
 Se usi Caddy o nginx sull'host come reverse proxy con SSL (Let's Encrypt), esponi l'app su una porta diversa e poi punta al container frontend:
 
@@ -219,7 +227,7 @@ sudo nginx -t && sudo systemctl reload nginx
 sudo certbot --nginx -d gsa.mio-dominio.it
 ```
 
-### 2.5 Aggiornamento dell'applicazione
+### 2.6 Aggiornamento dell'applicazione
 
 ```bash
 git pull
@@ -228,7 +236,7 @@ docker compose up --build -d
 
 La migrazione del database viene applicata automaticamente all'avvio del backend.
 
-### 2.6 Backup
+### 2.7 Backup
 
 ```bash
 # Backup manuale dal pannello Admin dell'app (tab Amministrazione)
@@ -256,10 +264,12 @@ Il file `Caddyfile` è già incluso nel repository.
   ```
 - Verifica: `ping -c1 gsa.test` deve rispondere da `127.0.0.1`
 
+> Lo script `scripts/setup.sh` può aggiungere automaticamente la voce hosts al passo 7.
+
 ### 3.2 Configurazione `.env`
 
 ```bash
-FRONTEND_URL=https://gsa.test   # dove il browser atterra dopo il login
+FRONTEND_URL=https://gsa.test      # dove il browser atterra dopo il login
 BACKEND_URL=http://localhost:3001  # usato per costruire il redirect_uri OAuth
 ```
 
@@ -267,20 +277,21 @@ BACKEND_URL=http://localhost:3001  # usato per costruire il redirect_uri OAuth
 > Google OAuth non accetta TLD non pubblici (`.test`, `.local`, ecc.) nei redirect URI.
 > Usando `localhost:3001` come `BACKEND_URL`, il callback OAuth avviene su `http://localhost:3001/auth/google/callback` (accettato da Google), e il backend poi reindirizza il browser su `https://gsa.test/?token=...`.
 
-### 3.3 Configurazione `vite.config.js`
+### 3.3 Avvio rapido con script
 
-Vite blocca per default le richieste da host non riconosciuti. Aggiungere `gsa.test` agli host consentiti in `frontend/vite.config.js`:
-
-```js
-server: {
-  allowedHosts: ["gsa.test"],
-  // ... resto della config
-}
+```bash
+bash scripts/dev-start.sh
 ```
 
-Questa impostazione è già presente nel repository.
+Lo script controlla se Caddy, backend o frontend sono già in esecuzione e chiede per ognuno se fermarlo e riavviarlo (`s`) o mantenerlo (`k`). I log vengono salvati in `logs/dev/`.
 
-### 3.4 Avvio (3 terminali)
+Per fermare tutto:
+
+```bash
+bash scripts/dev-stop.sh
+```
+
+### 3.4 Avvio manuale (3 terminali)
 
 ```bash
 # Terminale 1 — backend Express (porta 3001)
@@ -304,7 +315,7 @@ caddy trust
 
 > **Nota:** se ottieni `permission denied` sulla PKI di Caddy, ripristina i permessi prima di avviare:
 > ```bash
-> sudo chown -R $(whoami) "/Users/mirko/Library/Application Support/Caddy/"
+> sudo chown -R $(whoami) "/Users/$(whoami)/Library/Application Support/Caddy/"
 > sudo caddy run --config Caddyfile
 > ```
 
@@ -346,12 +357,6 @@ caddy trust
 ```
 Poi riavvia il browser (o apri una finestra in incognito).
 
-### 3.7 Rimozione della voce hosts
-
-```bash
-sudo sed -i '' '/gsa\.it/d' /etc/hosts
-```
-
 ---
 
 ## 4. Struttura del progetto
@@ -365,8 +370,16 @@ gsa-app-modular/
 ├── docker-compose.yml
 ├── Dockerfile                        ← backend
 ├── docker-entrypoint.sh
+├── Caddyfile                         ← reverse proxy locale per https://gsa.test
 ├── ita.traineddata                   ← modello OCR Tesseract italiano
 ├── package.json                      ← dipendenze backend
+│
+├── scripts/
+│   ├── setup.sh                      ← installazione completa da zero (interattivo)
+│   ├── dev-start.sh                  ← avvia Caddy + backend + frontend
+│   ├── dev-stop.sh                   ← ferma tutti i servizi di sviluppo
+│   ├── create-admin.js               ← crea utente admin con password locale
+│   └── backup_db.sh                  ← backup PostgreSQL
 │
 ├── docs/
 │   ├── er-schema.md                  ← schema entità-relazioni
@@ -380,19 +393,21 @@ gsa-app-modular/
 │   │   ├── db/
 │   │   │   ├── pool.js               ← connessione PostgreSQL (pg.Pool)
 │   │   │   ├── schema.sql            ← schema idempotente (unica fonte di verità)
-│   │   │   └── migrate.js            ← applica schema.sql al DB
+│   │   │   ├── migrations/           ← migration incrementali (001_*.sql …)
+│   │   │   └── migrate.js            ← applica schema + migration al DB
 │   │   ├── middleware.js             ← helper h() + errorHandler
 │   │   └── storage.js                ← lettura/scrittura file su disco
 │   │
 │   └── modules/
-│       ├── auth/                     ← autenticazione JWT + Google OAuth
-│       │   ├── routes.js             ← /auth/me, /auth/google, /auth/google/callback
-│       │   ├── userRepo.js           ← CRUD utenti + restrizioni viewer
+│       ├── auth/                     ← autenticazione JWT + Google OAuth + login locale
+│       │   ├── routes.js             ← /auth/login, /auth/me, /auth/google, …
+│       │   ├── userRepo.js           ← CRUD utenti + password bcrypt + restrizioni viewer
 │       │   └── middleware.js         ← requireAuth, requireRole
 │       │
 │       ├── anagrafica/               ← appartamenti, proprietari, inquilini, tipi spesa
 │       ├── documenti/                ← spese PDF + pipeline OCR
 │       ├── movimenti/                ← versamenti CRUD
+│       ├── spese_proprietari/        ← spese intestate ai proprietari
 │       ├── contabilita/              ← griglia, dashboard, regole, report
 │       └── archivio/                 ← documentale generico
 │
@@ -401,14 +416,14 @@ gsa-app-modular/
     ├── vite.config.js                ← proxy /api → localhost:3001 (solo sviluppo)
     ├── nginx.conf                    ← configurazione nginx per il container frontend
     ├── Dockerfile
-    ├── .dockerignore
     └── src/
         ├── main.jsx
-        ├── App.jsx
+        ├── App.jsx                   ← routing tab + controllo accessi per ruolo
         ├── api.js                    ← client REST (usa URL relativi /api/...)
         ├── context/
         │   └── AuthContext.jsx       ← stato autenticazione globale
         └── tabs/
+            ├── Login.jsx             ← login Google / Apple / email+password
             ├── Dashboard.jsx
             ├── griglia.jsx
             ├── report.jsx
@@ -416,12 +431,13 @@ gsa-app-modular/
             ├── Proprietari.jsx
             ├── componenti.jsx
             ├── documenti.jsx
+            ├── SpeseProprietari.jsx
             ├── versamenti.jsx
             ├── riparti.jsx
             ├── tipologie.jsx
             ├── Documentale.jsx
-            ├── GestioneUtenti.jsx    ← tab admin: crea/modifica utenti
-            └── GestioneRuoli.jsx     ← tab admin: restrizioni viewer
+            ├── GestioneUtenti.jsx    ← crea/modifica utenti + password locale
+            └── GestioneRuoli.jsx     ← restrizioni viewer
 ```
 
 ---
@@ -471,11 +487,44 @@ sudo apt install -y graphicsmagick ghostscript
 
 > Senza GraphicsMagick i PDF testuali continuano a funzionare normalmente; solo i PDF scansionati (immagini) richiedono queste dipendenze.
 
+### Caddy (solo per sviluppo con dominio locale)
+
+```bash
+brew install caddy      # macOS
+```
+
 ---
 
 ## 6. Installazione e avvio manuale
 
-### Configurazione PostgreSQL
+### Setup automatico (consigliato)
+
+Lo script `setup.sh` guida l'intera installazione in modo interattivo:
+
+```bash
+bash scripts/setup.sh
+```
+
+Esegue in sequenza:
+1. Verifica prerequisiti (Node, PostgreSQL, Caddy, GraphicsMagick)
+2. `npm install` per backend e frontend
+3. Crea utente e database PostgreSQL (`gsa_user` / `gsa_db`)
+4. Genera `.env` da `.env.example` con `JWT_SECRET` casuale
+5. Esegue tutte le migration del database
+6. Creazione opzionale di un utente admin con password locale
+7. Aggiunta opzionale di `gsa.test` a `/etc/hosts`
+
+Al termine:
+
+```bash
+bash scripts/dev-start.sh
+```
+
+---
+
+### Setup manuale passo per passo
+
+#### Configurazione PostgreSQL
 
 ```bash
 # macOS
@@ -491,47 +540,41 @@ GRANT ALL PRIVILEGES ON DATABASE gsa_db TO gsa_user;
 \q
 ```
 
-### Configurazione .env
+#### Configurazione .env
 
 ```bash
 cp .env.example .env
 # Edita .env con i tuoi valori
 ```
 
-### Installazione dipendenze
+#### Installazione dipendenze
 
 ```bash
-# Backend (dalla cartella radice)
 npm install
-
-# Frontend
 cd frontend && npm install && cd ..
 ```
 
-### Migrazione database
+#### Migrazione database
 
 ```bash
 npm run db:migrate
 ```
 
-### Avvio
+#### Avvio
 
-Apri **due terminali**:
-
-**Terminale 1 — backend:**
 ```bash
-npm run dev
-# ✅  Backend → http://localhost:3001
+bash scripts/dev-start.sh
 ```
 
-**Terminale 2 — frontend:**
-```bash
-cd frontend
-npm run dev
-# ➜  Local: http://localhost:5173/
-```
+oppure manualmente su due terminali:
 
-Apri il browser su **http://localhost:5173**
+```bash
+# Terminale 1
+npm run dev           # backend → http://localhost:3001
+
+# Terminale 2
+cd frontend && npm run dev   # frontend → http://localhost:5173
+```
 
 ---
 
@@ -562,40 +605,69 @@ Tutte le variabili vanno nel file `.env` nella cartella radice. Il file `.env.ex
 > **Sicurezza:** Il file `.env` non deve mai essere committato su Git.
 > Genera `JWT_SECRET` con: `openssl rand -hex 64`
 
+**Configurazione per ambiente:**
+
+| Ambiente | `BACKEND_URL` | `FRONTEND_URL` |
+|---|---|---|
+| Dev locale (Vite) | `http://localhost:3001` | `http://localhost:5173` |
+| Dev locale (Caddy/gsa.test) | `http://localhost:3001` | `https://gsa.test` |
+| Docker locale | `http://localhost:8080` | `http://localhost:8080` |
+| Produzione | `https://gsa.mio-dominio.it` | `https://gsa.mio-dominio.it` |
+
 ---
 
-## 8. Autenticazione Google OAuth
+## 8. Autenticazione
 
-GSA usa Google come unico provider di autenticazione. I nuovi utenti che si registrano con Google vengono creati con ruolo `editor` (modifica) o `viewer` (sola lettura) — l'admin assegna i ruoli dalla tab Amministrazione.
+GSA supporta tre metodi di login:
 
-### 7.1 Creare le credenziali Google
+| Metodo | Configurazione | Note |
+|--------|---------------|------|
+| **Email + password** | Nessuna — funziona subito | Utenti creati dall'admin o via script |
+| **Google OAuth** | `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` | Richiede account Google Cloud |
+| **Apple Sign In** | `APPLE_CLIENT_ID` + chiavi Apple Developer | Richiede HTTPS sul redirect URI |
+
+### 8.1 Login locale (email + password)
+
+Non richiede alcuna configurazione esterna. L'admin crea gli utenti dalla tab **Gestione Utenti** impostando una password, oppure usa lo script da terminale:
+
+```bash
+node scripts/create-admin.js <email> <password>
+```
+
+Lo script crea l'utente con ruolo `admin` se non esiste, oppure aggiorna la password se esiste già.
+
+Gli utenti possono accedere dalla pagina di login cliccando **"Accedi con email e password"**.
+
+**Gestione password dalla tab Amministrazione → Gestione Utenti:**
+- Nel form di creazione è possibile impostare subito una password (campo opzionale)
+- Il pulsante lucchetto nella riga di ogni utente permette di impostare, cambiare o rimuovere la password
+
+> Un utente può avere sia una password locale che un account Google/Apple collegato: entrambi i metodi funzionano in parallelo.
+
+### 8.2 Google OAuth
+
+#### Creare le credenziali
 
 1. Vai su [Google Cloud Console](https://console.cloud.google.com/) → seleziona o crea un progetto
 2. Menu → **APIs & Services** → **Credentials**
 3. Clic su **+ Create Credentials** → **OAuth client ID**
 4. Application type: **Web application**
-5. Nome: `GSA` (o qualsiasi)
-6. **Authorized redirect URIs** — aggiungi:
+5. **Authorized redirect URIs** — aggiungi:
    - Sviluppo locale: `http://localhost:3001/auth/google/callback`
    - Produzione: `https://gsa.mio-dominio.it/auth/google/callback`
-7. Clic **Create** → copia **Client ID** e **Client Secret**
+6. Clic **Create** → copia **Client ID** e **Client Secret**
 
-### 7.2 Configurazione
-
-Inserisci in `.env`:
+#### Configurazione
 
 ```bash
 GOOGLE_CLIENT_ID=732897461114-xxxx.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=GOCSPX-xxxx
-FRONTEND_URL=https://gsa.mio-dominio.it
-BACKEND_URL=https://gsa.mio-dominio.it
 ADMIN_EMAIL=tua@email.com
 ```
 
-> **`BACKEND_URL`** deve corrispondere esattamente al dominio del redirect URI registrato in Google Console (senza slash finale).
-> Il callback è sempre `${BACKEND_URL}/auth/google/callback`.
+> **`BACKEND_URL`** deve corrispondere esattamente al dominio del redirect URI registrato in Google Console (senza slash finale). Il callback è sempre `${BACKEND_URL}/auth/google/callback`.
 
-### 7.3 Primo accesso
+#### Primo accesso
 
 1. Avvia l'applicazione
 2. Clicca "Accedi con Google" nella pagina di login
@@ -603,39 +675,44 @@ ADMIN_EMAIL=tua@email.com
 4. L'account riceve automaticamente il ruolo `admin`
 5. Tutti gli account successivi ricevono ruolo `editor` — l'admin può modificarli
 
-### 7.4 Flusso OAuth
+#### Flusso OAuth
 
 ```
 Browser → /api/auth/google
        → Google (autorizzazione)
-       → /auth/google/callback (nginx → backend)
+       → /auth/google/callback
        → backend verifica → crea/aggiorna utente
        → redirect a FRONTEND_URL/?token=<jwt>
        → frontend memorizza il token e autentica l'utente
 ```
 
+### 8.3 Token JWT
+
+Tutti i metodi di login rilasciano un token JWT con scadenza a 7 giorni, firmato con `JWT_SECRET`. Il token viene salvato in `localStorage` e inviato come header `Authorization: Bearer <token>` in ogni richiesta API.
+
 ---
 
 ## 9. Ruoli e gestione utenti
 
-### 8.1 Ruoli disponibili
+### 9.1 Ruoli disponibili
 
-| Ruolo | Permessi |
-|-------|----------|
-| `admin` | Accesso completo + gestione utenti + configurazione ruoli |
-| `editor` | Lettura e scrittura di tutti i dati (no gestione utenti) |
-| `viewer` | Sola lettura — può essere limitato a specifici appartamenti/inquilini |
+| Ruolo | Tab accessibili | Operazioni |
+|-------|----------------|------------|
+| `admin` | Tutte | Lettura, scrittura, eliminazione + gestione utenti |
+| `editor` | Dashboard, Griglia, Report, Documenti, Spese Proprietari, Movimenti, Documentale | Lettura e scrittura (no eliminazione strutturale, no gestione utenti) |
+| `viewer` | Griglia, Report | Sola lettura — può essere limitato a specifici appartamenti/inquilini |
 
-### 8.2 Gestione utenti (tab Amministrazione → Gestione Utenti)
+### 9.2 Gestione utenti (tab Amministrazione → Gestione Utenti)
 
 Solo gli amministratori possono:
 - Vedere la lista di tutti gli utenti registrati
+- Creare un nuovo utente con email, nome, cognome, ruolo e password opzionale
 - Cambiare il ruolo di un utente (admin / editor / viewer)
+- Impostare o rimuovere la password locale tramite il pulsante lucchetto
 - Disabilitare un account (l'utente non può più fare login)
 - Eliminare un account
-- Creare manualmente un account (senza login OAuth — utile per inviti)
 
-### 8.3 Restrizioni Viewer (tab Amministrazione → Gestione Ruoli)
+### 9.3 Restrizioni Viewer (tab Amministrazione → Gestione Ruoli)
 
 Un utente con ruolo `viewer` ha accesso in sola lettura. L'admin può restringere ulteriormente la visibilità:
 
@@ -644,9 +721,14 @@ Un utente con ruolo `viewer` ha accesso in sola lettura. L'admin può restringer
 
 Le restrizioni si applicano a tutte le sezioni: griglia, report, dashboard, spese, movimenti.
 
-### 8.4 Primo setup senza ADMIN_EMAIL
+### 9.4 Primo setup senza Google OAuth
 
-Se non hai impostato `ADMIN_EMAIL`, puoi promuovere manualmente il primo utente da database:
+```bash
+# Crea subito un utente admin con password locale
+node scripts/create-admin.js admin@esempio.com lapassword
+```
+
+Oppure, se si preferisce promuovere un utente già esistente via database:
 
 ```bash
 # Con Docker
@@ -662,16 +744,10 @@ psql -U gsa_user -d gsa_db \
 
 ## 10. Schema e migrazione del database
 
-Lo script di migrazione applica `src/shared/db/schema.sql`, che è **idempotente**: funziona sia su un database vuoto (prima installazione) sia su un database esistente a qualsiasi versione precedente.
+Lo script di migrazione applica tutte le migration in `src/shared/db/migrations/` in ordine numerico. Le migration sono idempotenti: possono essere eseguite più volte senza effetti collaterali.
 
 ```bash
 npm run db:migrate
-```
-
-Output atteso:
-```
-▶  Migrazione schema in corso…
-✅  Schema applicato.
 ```
 
 Con Docker la migrazione viene eseguita automaticamente all'avvio del backend.
@@ -680,9 +756,9 @@ Con Docker la migrazione viene eseguita automaticamente all'avvio del backend.
 
 | Tabella | Descrizione |
 |---------|-------------|
-| `users` | Utenti autenticati con ruolo e provider OAuth |
-| `user_appartamenti` | Restrizioni appartamenti per ruolo viewer |
-| `user_inquilini` | Restrizioni inquilini per ruolo viewer |
+| `users` | Utenti con ruolo, provider OAuth e password_hash per login locale |
+| `viewer_appartamenti` | Restrizioni appartamenti per ruolo viewer |
+| `viewer_inquilini` | Restrizioni inquilini per ruolo viewer |
 | `appartamenti` | Anagrafica appartamenti |
 | `proprietari` | Anagrafica proprietari |
 | `appartamento_proprietari` | Associazione proprietario ↔ appartamento (% e periodo) |
@@ -701,30 +777,31 @@ Per lo schema completo: [docs/er-schema.md](docs/er-schema.md)
 
 ## 11. Architettura
 
-### 10.1 Monolite modulare
+### 11.1 Monolite modulare
 
-Il backend è organizzato come **monolite modulare**: un unico processo Node.js con moduli di dominio separati che comunicano attraverso interfacce pubbliche (`index.js`). Nessuna dipendenza SQL cross-modulo.
+Il backend è organizzato come **monolite modulare**: un unico processo Node.js con moduli di dominio separati che comunicano attraverso interfacce pubbliche. Nessuna dipendenza SQL cross-modulo.
 
 ```
 src/server.js
-  ├── app.use("/auth",     authRouter)       ← OAuth callbacks
-  ├── app.use("/api/auth", authRouter)       ← API autenticazione
+  ├── app.use("/auth",     authRouter)       ← OAuth callbacks (redirect browser)
+  ├── app.use("/api/auth", authRouter)       ← API autenticazione (fetch)
   ├── app.use("/api",      requireAuth)      ← tutto il resto richiede JWT
   ├── app.use("/api/appartamenti", ...)
   ├── app.use("/api/documenti", ...)
   └── ...
 ```
 
-### 10.2 URL e proxy
+### 11.2 URL e proxy
 
-| Ambiente | Frontend | /api/* | /auth/* |
-|----------|----------|--------|---------|
-| Sviluppo | Vite :5173 | Vite proxy → backend :3001 | — (non usato in dev) |
+| Ambiente | Frontend | `/api/*` | `/auth/*` |
+|----------|----------|---------|----------|
+| Sviluppo (Vite) | Vite :5173 | Vite proxy → backend :3001 | — |
+| Sviluppo (Caddy) | Vite :5173 | Caddy → backend :3001 | Caddy → backend :3001 |
 | Docker / produzione | nginx :80 | nginx → backend :3001 | nginx → backend :3001 |
 
-Il frontend usa sempre URL relativi (`/api/...`): funziona su qualsiasi dominio senza variabili d'ambiente baked nel bundle.
+Il frontend usa sempre URL relativi (`/api/...`): funziona su qualsiasi dominio senza variabili d'ambiente nel bundle.
 
-### 10.3 Pipeline OCR
+### 11.3 Pipeline OCR
 
 Quando viene caricato un PDF di spesa:
 
@@ -735,7 +812,7 @@ Quando viene caricato un PDF di spesa:
 3. Il sistema propone: importo, fornitore, periodo, tipo di spesa
 4. Il PDF viene salvato in `storage/pdf/{uuid}.pdf`
 
-### 10.4 Calcolo conguaglio
+### 11.4 Calcolo conguaglio
 
 ```
 Conguaglio = Versato − Spese dovute − Affitto
@@ -751,7 +828,6 @@ Conguaglio = Versato − Spese dovute − Affitto
 ## 12. Risoluzione problemi
 
 ### Il backend non parte: `Mancano in .env: JWT_SECRET`
-Il file `.env` non contiene le variabili obbligatorie. Controlla che esista nella cartella radice:
 ```bash
 ls -la | grep "^\.env$"
 cat .env | grep JWT_SECRET
@@ -770,29 +846,38 @@ psql -U postgres -c "ALTER USER gsa_user WITH PASSWORD 'changeme';"
 ```
 
 ### Il frontend mostra pagina bianca
-Il backend non è avviato. Verifica con:
 ```bash
 curl http://localhost:3001/api/health
 ```
 
-### Login Google non funziona: `Google OAuth non configurato`
-`GOOGLE_CLIENT_ID` non è impostato nel `.env`. Verifica e riavvia il backend.
+### Login Google: `token_exchange_failed`
+Il `redirect_uri` non coincide con quello registrato in Google Console. Verifica `BACKEND_URL` nel `.env`:
+
+| Ambiente | `BACKEND_URL` corretto |
+|---|---|
+| Dev locale | `http://localhost:3001` |
+| Docker | `http://localhost:8080` (o la porta impostata) |
+| Produzione | `https://gsa.mio-dominio.it` |
 
 ### Login Google: `redirect_uri_mismatch`
-Il `redirect_uri` che il backend invia a Google non corrisponde a quello registrato in Google Console.
-Verifica che `BACKEND_URL` nel `.env` corrisponda esattamente al dominio registrato:
 ```
 URI registrato in Google Console: https://gsa.mio-dominio.it/auth/google/callback
 BACKEND_URL nel .env:             https://gsa.mio-dominio.it   ← senza slash finale
 ```
 
+### Login Google: `Google OAuth non configurato`
+`GOOGLE_CLIENT_ID` non è impostato nel `.env`. Verifica e riavvia il backend.
+
 ### Login Google: `account_disabled`
-L'account esiste ma è stato disabilitato. Un admin deve riabilitarlo dalla tab Gestione Utenti.
+Un admin deve riabilitare l'account dalla tab Gestione Utenti.
+
+### Login locale: credenziali non valide
+- Verifica che l'utente esista: l'admin lo vede in Gestione Utenti
+- Verifica che abbia una password impostata (lucchetto nella riga utente)
+- Se sei l'unico admin, ricrea l'utente con: `node scripts/create-admin.js <email> <nuova-password>`
 
 ### `GraphicsMagick not found` durante upload PDF
-I PDF testuali continuano a funzionare. Per i PDF scansionati installa GraphicsMagick:
 ```bash
-# macOS Apple Silicon
 brew install graphicsmagick ghostscript
 echo 'export PATH="/opt/homebrew/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
 ```
@@ -803,24 +888,26 @@ npm run db:migrate
 ```
 
 ### La porta 80 è già in uso (Docker)
-Cambia `HTTP_PORT` nel `.env`:
 ```bash
+# In .env
 HTTP_PORT=8080
 ```
 Poi `docker compose up -d` e accedi su `http://localhost:8080`.
+
+### Caddy: `permission denied` sulla PKI
+```bash
+sudo chown -R $(whoami) "/Users/$(whoami)/Library/Application Support/Caddy/"
+```
+
+### `Cannot find module` all'avvio manuale
+```bash
+rm -rf node_modules && npm install
+cd frontend && rm -rf node_modules && npm install
+```
 
 ### Aggiornare a una nuova versione
 ```bash
 git pull
 docker compose up --build -d
 # La migrazione DB viene eseguita automaticamente
-```
-
-### `Cannot find module` all'avvio manuale
-```bash
-# Backend
-rm -rf node_modules && npm install
-
-# Frontend
-cd frontend && rm -rf node_modules && npm install
 ```
