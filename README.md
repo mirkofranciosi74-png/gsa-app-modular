@@ -4,10 +4,14 @@ Applicazione web fullstack per la gestione completa di spese condominiali, affit
 
 **Stack:** Node.js 20 · Express · PostgreSQL 16 · React 18 · Vite 5 · OCR integrato · Report PDF · Autenticazione Google OAuth + login locale email/password
 
-**Documentazione:**
-- [Schema Entità-Relazioni](docs/er-schema.md)
-- [Funzionalità complete](docs/funzionalita.md)
-- [Riferimento API](API.md)
+## Documentazione del progetto
+
+| Documento | Descrizione |
+|-----------|-------------|
+| [Riferimento API](docs/API.md) | Tutti gli endpoint REST con parametri, body e risposte |
+| [Funzionalità complete](docs/funzionalita.md) | Descrizione funzionale di ogni modulo dell'applicazione |
+| [Schema Entità-Relazioni](docs/er-schema.md) | Schema del database con relazioni tra le tabelle |
+| [Specifiche versamenti e entrate](docs/specifiche_versamenti_entrate.md) | Regole di calcolo per versamenti, quote e conguagli |
 
 ---
 
