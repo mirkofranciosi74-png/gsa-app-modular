@@ -4,13 +4,13 @@ services:
     image: postgres:18-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB:       gsa_db_2
-      POSTGRES_USER:     gsa_user
-      POSTGRES_PASSWORD: changeme
+      POSTGRES_DB:       ${DB_NAME:-gsa_db}
+      POSTGRES_USER:     ${DB_USER:-gsa_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD obbligatoria nel file .env}
     volumes:
       - pgdata:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U gsa_user -d gsa_db_2"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-gsa_user} -d ${DB_NAME:-gsa_db}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -18,20 +18,15 @@ services:
   backend:
     build: .
     restart: unless-stopped
+    env_file: .env
     depends_on:
       db:
         condition: service_healthy
     environment:
-      PORT:             3001
-      DB_HOST:          db
-      DB_PORT:          5432
-      DB_NAME:          gsa_db_2
-      DB_USER:          gsa_user
-      DB_PASSWORD:      changeme
-      DB_SSL:           "false"
-      MAX_FILE_SIZE:    20971520
-      OCR_MIN_CHARS:    120
-      TESSERACT_LANG:   ita
+      PORT:    3001
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_SSL:  "false"
     volumes:
       - storage_pdf:/app/storage/pdf
       - storage_archivio:/app/storage/archivio
@@ -42,7 +37,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "80:80"
+      - "${HTTP_PORT:-80}:80"
 
 volumes:
   pgdata:

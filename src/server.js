@@ -7,7 +7,7 @@ process.on("unhandledRejection", (reason) => {
   console.error("❌ unhandledRejection:", reason?.message ?? reason);
 });
 
-const REQUIRED = ["DB_HOST","DB_PORT","DB_NAME","DB_USER","DB_PASSWORD"];
+const REQUIRED = ["DB_HOST","DB_PORT","DB_NAME","DB_USER","DB_PASSWORD","JWT_SECRET"];
 const missing  = REQUIRED.filter(k => !process.env[k]);
 if (missing.length) {
   console.error(`❌  Mancano in .env: ${missing.join(", ")}`);
@@ -17,6 +17,8 @@ if (missing.length) {
 import express from "express";
 import cors    from "cors";
 import { errorHandler } from "./shared/middleware.js";
+import { requireAuth }  from "./modules/auth/middleware.js";
+import { authRouter }   from "./modules/auth/routes.js";
 import { log } from "./shared/logger.js";
 
 import { appartamentiRouter, proprietariRouter,
@@ -44,6 +46,13 @@ app.use((req, _res, next) => {
 });
 
 app.get("/api/health", (_, r) => r.json({ ok: true, ts: new Date().toISOString() }));
+
+// Auth routes: /auth per i redirect OAuth (browser), /api/auth per le chiamate fetch (Vite proxy)
+app.use("/auth",     authRouter);
+app.use("/api/auth", authRouter);
+
+// Tutte le rotte /api (tranne /api/auth) richiedono autenticazione
+app.use("/api", requireAuth);
 
 app.use("/api/appartamenti",  appartamentiRouter);
 app.use("/api/proprietari",   proprietariRouter);

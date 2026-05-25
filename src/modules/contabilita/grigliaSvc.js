@@ -250,6 +250,7 @@ export async function righeGriglia(appId, periodoDA, periodoA, componenteId = nu
       label,
       descrizione:      m.descrizione      || null,
       comp_label:       m.comp_label       || null,
+      comp_id:          m.componente_id    || null,
       periodicita:      m.periodicita      || null,
       tipo_versamento:  m.tipo_versamento  || "affitto",
       mese_riferimento: m.mese_riferimento || null,
@@ -258,7 +259,7 @@ export async function righeGriglia(appId, periodoDA, periodoA, componenteId = nu
       periodo_a:     meseContabile || a,
       importo:       valore,
       quote:         quotePerComp,
-      quotaTeorica,                          // null se nessuna regola versamento
+      quotaTeorica,
     });
   }
 

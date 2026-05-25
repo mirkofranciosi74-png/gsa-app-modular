@@ -260,7 +260,75 @@ Il documentale è un archivio generico per documenti non legati alla pipeline sp
 
 ---
 
-## 12. Struttura API REST
+## 12. Autenticazione e Gestione Utenti
+
+**Percorso:** tab "Amministrazione" → "Gestione Utenti"
+
+### 12.1 Login con Google
+
+L'accesso avviene esclusivamente tramite Google OAuth 2.0. Non esistono password locali.
+
+1. Clicca **Accedi con Google** nella schermata di login
+2. Autorizza l'applicazione nel popup Google
+3. Verrai reindirizzato automaticamente all'applicazione autenticato
+
+### 12.2 Ruoli
+
+| Ruolo | Descrizione |
+|-------|-------------|
+| `admin` | Accesso completo inclusa la gestione di utenti e ruoli |
+| `editor` | Lettura e scrittura di tutti i dati; non vede la gestione utenti |
+| `viewer` | Sola lettura, eventualmente limitata ad appartamenti/inquilini specifici |
+
+### 12.3 Gestione utenti (solo admin)
+
+- Lista di tutti gli utenti registrati con avatar, email, ruolo e stato
+- Creazione manuale di un account (email + nome + ruolo, senza bisogno del login Google)
+- Modifica del ruolo di qualsiasi utente
+- Disabilitazione/riabilitazione di un account
+- Eliminazione di un account
+
+### 12.4 Primo accesso e promozione admin
+
+Il primo account che accede con l'indirizzo email impostato nella variabile `ADMIN_EMAIL` riceve automaticamente il ruolo `admin`.
+
+---
+
+## 13. Ruoli e Restrizioni Viewer
+
+**Percorso:** tab "Amministrazione" → "Gestione Ruoli"
+
+Disponibile solo per gli utenti con ruolo `admin`.
+
+### 13.1 Visibilità predefinita
+
+Un utente `viewer` senza restrizioni vede tutti gli appartamenti e tutti gli inquilini.
+
+### 13.2 Limitazione per appartamento
+
+Selezionando uno o più appartamenti, il viewer vede solo i dati relativi a quelli:
+- Dashboard filtrata
+- Griglia economica solo degli appartamenti selezionati
+- Report limitato agli appartamenti consentiti
+- Spese e versamenti filtrati
+
+### 13.3 Limitazione per inquilino
+
+Selezionando specifici inquilini, il viewer vede solo le righe di griglia, report e movimenti relative a quegli inquilini.
+
+> Se si selezionano appartamenti, la lista degli inquilini nel pannello di configurazione si filtra automaticamente per mostrare solo quelli degli appartamenti selezionati.
+
+### 13.4 Applicazione delle restrizioni
+
+Le restrizioni sono applicate sia lato backend (le query SQL restituiscono solo i dati consentiti) sia lato frontend come difesa aggiuntiva. Questo vale per:
+- Griglia economica
+- Generazione report
+- Dashboard
+- Lista movimenti e spese
+
+---
+
+## 14. Struttura API REST
 
 Tutti gli endpoint seguono lo schema `/api/<risorsa>` con metodi standard HTTP.
 

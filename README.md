@@ -2,31 +2,33 @@
 
 Applicazione web fullstack per la gestione completa di spese condominiali, affitti, versamenti, conguagli e documentazione relativa a più appartamenti.
 
-**Stack:** Node.js 18+ · Express · PostgreSQL 16 · React 18 · Vite 5 · OCR integrato · Report PDF
+**Stack:** Node.js 20 · Express · PostgreSQL 18 · React 18 · Vite 5 · OCR integrato · Report PDF · Autenticazione Google OAuth
 
 **Documentazione:**
 - [Schema Entità-Relazioni](docs/er-schema.md)
 - [Funzionalità complete](docs/funzionalita.md)
+- [Riferimento API](API.md)
 
 ---
 
 ## Indice
 
-1. [Avvio con Docker (consigliato)](#1-avvio-con-docker-consigliato)
-2. [Struttura del progetto](#2-struttura-del-progetto)
-3. [Prerequisiti di sistema](#3-prerequisiti-di-sistema)
-4. [Installazione da repository Git](#4-installazione-da-repository-git)
-5. [Configurazione PostgreSQL](#5-configurazione-postgresql)
-6. [Configurazione variabili d'ambiente](#6-configurazione-variabili-dambiente)
-7. [Schema e migrazione del database](#7-schema-e-migrazione-del-database)
-7. [Installazione dipendenze](#7-installazione-dipendenze)
-8. [Avvio del progetto](#8-avvio-del-progetto)
-9. [Architettura](#9-architettura)
-10. [Risoluzione problemi](#10-risoluzione-problemi)
+1. [Avvio con Docker — sviluppo locale](#1-avvio-con-docker--sviluppo-locale)
+2. [Deploy su web (produzione)](#2-deploy-su-web-produzione)
+3. [Sviluppo locale con dominio personalizzato (Caddy)](#3-sviluppo-locale-con-dominio-personalizzato-caddy)
+4. [Struttura del progetto](#4-struttura-del-progetto)
+5. [Prerequisiti di sistema](#5-prerequisiti-di-sistema)
+6. [Installazione e avvio manuale](#6-installazione-e-avvio-manuale)
+7. [Variabili d'ambiente](#7-variabili-dambiente)
+8. [Autenticazione Google OAuth](#8-autenticazione-google-oauth)
+9. [Ruoli e gestione utenti](#9-ruoli-e-gestione-utenti)
+10. [Schema e migrazione del database](#10-schema-e-migrazione-del-database)
+11. [Architettura](#11-architettura)
+12. [Risoluzione problemi](#12-risoluzione-problemi)
 
 ---
 
-## 1. Avvio con Docker (consigliato)
+## 1. Avvio con Docker — sviluppo locale
 
 Il modo più rapido per avviare l'intera applicazione (backend + frontend + PostgreSQL) senza installare nulla sul sistema host.
 
@@ -34,265 +36,453 @@ Il modo più rapido per avviare l'intera applicazione (backend + frontend + Post
 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) installato e in esecuzione
 
+### Configurazione iniziale
+
+```bash
+git clone <url-repository> gsa-app-modular
+cd gsa-app-modular
+cp .env.example .env
+```
+
+Apri `.env` e compila almeno:
+
+```bash
+DB_PASSWORD=scegli-una-password-sicura
+JWT_SECRET=$(openssl rand -hex 64)   # genera un segreto casuale
+ADMIN_EMAIL=tua@email.com            # primo account che diventa admin
+FRONTEND_URL=http://localhost
+BACKEND_URL=http://localhost:3001
+```
+
+> Per ora puoi lasciare `GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET` vuoti: il login Google non sarà disponibile, ma l'applicazione si avvia comunque.
+
 ### Avvio
 
 ```bash
-git clone https://github.com/mirkofranciosi74-png/gsa-app-modular.git
-cd gsa-app-modular
 docker compose up --build
 ```
 
 Al primo avvio Docker:
-1. Scarica le immagini base (postgres:16, node:18, nginx)
+1. Scarica le immagini base (postgres, node, nginx)
 2. Builda il backend e il frontend
 3. Avvia PostgreSQL e attende che sia pronto
 4. Esegue automaticamente la migrazione del database
-5. Avvia il backend e il frontend
+5. Avvia backend e frontend
 
 Apri il browser su **http://localhost**
 
 ### Comandi utili
 
 ```bash
-# Avvia in background
-docker compose up -d
-
-# Visualizza i log in tempo reale
-docker compose logs -f
-
-# Log solo del backend
-docker compose logs -f backend
-
-# Ferma tutto
-docker compose down
-
-# Ferma e cancella anche i dati del DB e i file storage
-docker compose down -v
+docker compose up -d              # avvia in background
+docker compose logs -f            # log in tempo reale
+docker compose logs -f backend    # log solo del backend
+docker compose down               # ferma tutto (dati conservati)
+docker compose down -v            # ferma e cancella anche i volumi (dati persi)
+docker compose restart backend    # riavvia solo il backend
 ```
-
-### Personalizzare le credenziali DB
-
-Per cambiare utente/password del database, modifica le variabili `environment` nel file `docker-compose.yml` (sezioni `db` e `backend`) prima del primo avvio. Devono essere coerenti tra i due servizi.
 
 ### Persistenza dei dati
 
 I dati sono salvati in tre volumi Docker nominati:
-- `pgdata` — dati PostgreSQL
-- `storage_pdf` — PDF delle bollette/spese
-- `storage_archivio` — file del documentale
+
+| Volume | Contenuto |
+|--------|-----------|
+| `pgdata` | Dati PostgreSQL |
+| `storage_pdf` | PDF delle bollette e spese |
+| `storage_archivio` | File del documentale |
 
 I volumi sopravvivono a `docker compose down` e vengono eliminati solo con `docker compose down -v`.
 
 ---
 
-## 2. Struttura del progetto
+## 2. Deploy su web (produzione)
+
+Questa sezione descrive come pubblicare l'applicazione su un server accessibile da internet.
+
+### Prerequisiti
+
+- Server Linux (Ubuntu 22.04+ consigliato) con Docker e Docker Compose installati
+- Un dominio DNS puntato all'IP del server (es. `gsa.mio-dominio.it`)
+- Credenziali Google OAuth (vedi [Sezione 7](#7-autenticazione-google-oauth))
+- (Consigliato) HTTPS tramite nginx/Caddy in reverse proxy o Let's Encrypt
+
+### 2.1 Preparazione del server
+
+```bash
+# Installa Docker
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+newgrp docker
+
+# Clona il repository
+git clone <url-repository> gsa-app-modular
+cd gsa-app-modular
+```
+
+### 2.2 Configurazione .env di produzione
+
+```bash
+cp .env.example .env
+nano .env   # oppure: vim .env
+```
+
+Compila **tutti** i campi:
+
+```bash
+# Database
+DB_HOST=db
+DB_PORT=5432
+DB_NAME=gsa_db
+DB_USER=gsa_user
+DB_PASSWORD=password-molto-sicura-cambiarla
+
+# Backend
+PORT=3001
+HTTP_PORT=80          # porta esposta da nginx (80 oppure altra porta)
+
+# JWT — generare con: openssl rand -hex 64
+JWT_SECRET=incolla-qui-una-stringa-hex-di-128-caratteri
+
+# Google OAuth (vedi Sezione 7)
+GOOGLE_CLIENT_ID=732897461114-xxxx.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=GOCSPX-xxxx
+
+# URL pubblici — DEVE corrispondere all'indirizzo del server
+FRONTEND_URL=https://gsa.mio-dominio.it
+BACKEND_URL=https://gsa.mio-dominio.it
+
+# Primo admin
+ADMIN_EMAIL=admin@mio-dominio.it
+
+# Impostazioni OCR e upload (valori default già corretti)
+MAX_FILE_SIZE=20971520
+OCR_MIN_CHARS=120
+TESSERACT_LANG=ita
+```
+
+> **Importante:** `BACKEND_URL` viene usato per costruire il `redirect_uri` del callback OAuth.
+> Il valore registrato in Google Console deve essere `${BACKEND_URL}/auth/google/callback`.
+> Se il dominio è `https://gsa.mio-dominio.it`, il callback è `https://gsa.mio-dominio.it/auth/google/callback`.
+
+### 2.3 Avvio in produzione
+
+```bash
+docker compose up --build -d
+```
+
+### 2.4 HTTPS con nginx reverse proxy esterno (consigliato)
+
+Se usi Caddy o nginx sull'host come reverse proxy con SSL (Let's Encrypt), esponi l'app su una porta diversa e poi punta al container frontend:
+
+```bash
+# In .env
+HTTP_PORT=8080
+FRONTEND_URL=https://gsa.mio-dominio.it
+BACKEND_URL=https://gsa.mio-dominio.it
+```
+
+**Esempio Caddyfile:**
+```
+gsa.mio-dominio.it {
+    reverse_proxy localhost:8080
+}
+```
+
+**Esempio nginx (`/etc/nginx/sites-available/gsa`):**
+```nginx
+server {
+    listen 443 ssl;
+    server_name gsa.mio-dominio.it;
+
+    ssl_certificate     /etc/letsencrypt/live/gsa.mio-dominio.it/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/gsa.mio-dominio.it/privkey.pem;
+
+    location / {
+        proxy_pass         http://localhost:8080;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Forwarded-Proto https;
+        proxy_set_header   X-Real-IP         $remote_addr;
+    }
+}
+
+server {
+    listen 80;
+    server_name gsa.mio-dominio.it;
+    return 301 https://$host$request_uri;
+}
+```
+
+```bash
+sudo ln -s /etc/nginx/sites-available/gsa /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+sudo certbot --nginx -d gsa.mio-dominio.it
+```
+
+### 2.5 Aggiornamento dell'applicazione
+
+```bash
+git pull
+docker compose up --build -d
+```
+
+La migrazione del database viene applicata automaticamente all'avvio del backend.
+
+### 2.6 Backup
+
+```bash
+# Backup manuale dal pannello Admin dell'app (tab Amministrazione)
+# oppure direttamente da PostgreSQL:
+docker compose exec db pg_dump -U gsa_user gsa_db > backup_$(date +%Y%m%d).sql
+
+# Ripristino
+cat backup_20260101.sql | docker compose exec -T db psql -U gsa_user gsa_db
+```
+
+---
+
+## 3. Sviluppo locale con dominio personalizzato (Caddy)
+
+Simula un deployment reale su `https://gsa.test` mantenendo i dev server con hot reload.
+Caddy genera automaticamente un certificato HTTPS locale firmato dalla propria CA.
+Il file `Caddyfile` è già incluso nel repository.
+
+### 3.1 Prerequisiti
+
+- Caddy installato: `brew install caddy`
+- Voce in `/etc/hosts` (una tantum, richiede sudo):
+  ```bash
+  sudo sh -c 'echo "127.0.0.1  gsa.test" >> /etc/hosts'
+  ```
+- Verifica: `ping -c1 gsa.test` deve rispondere da `127.0.0.1`
+
+### 3.2 Configurazione `.env`
+
+```bash
+FRONTEND_URL=https://gsa.test   # dove il browser atterra dopo il login
+BACKEND_URL=http://localhost:3001  # usato per costruire il redirect_uri OAuth
+```
+
+> **Perché `BACKEND_URL` è localhost?**
+> Google OAuth non accetta TLD non pubblici (`.test`, `.local`, ecc.) nei redirect URI.
+> Usando `localhost:3001` come `BACKEND_URL`, il callback OAuth avviene su `http://localhost:3001/auth/google/callback` (accettato da Google), e il backend poi reindirizza il browser su `https://gsa.test/?token=...`.
+
+### 3.3 Configurazione `vite.config.js`
+
+Vite blocca per default le richieste da host non riconosciuti. Aggiungere `gsa.test` agli host consentiti in `frontend/vite.config.js`:
+
+```js
+server: {
+  allowedHosts: ["gsa.test"],
+  // ... resto della config
+}
+```
+
+Questa impostazione è già presente nel repository.
+
+### 3.4 Avvio (3 terminali)
+
+```bash
+# Terminale 1 — backend Express (porta 3001)
+npm run dev
+
+# Terminale 2 — frontend Vite (porta 5173)
+cd frontend && npm run dev
+
+# Terminale 3 — proxy Caddy (porta 443 HTTPS, richiede sudo)
+sudo caddy run --config Caddyfile
+```
+
+Il `Caddyfile` usa `tls internal`: Caddy genera il certificato con la propria CA locale invece di contattare Let's Encrypt (necessario perché `gsa.test` non è raggiungibile da internet).
+
+Al **primo avvio** macOS mostra un prompt per aggiungere la CA al Keychain di sistema — conferma con la password di amministratore. Questo rende il certificato `https://gsa.test` trusted nel browser senza avvisi.
+
+Se il prompt non compare, installa la CA manualmente in un quarto terminale **mentre Caddy è in esecuzione**:
+```bash
+caddy trust
+```
+
+> **Nota:** se ottieni `permission denied` sulla PKI di Caddy, ripristina i permessi prima di avviare:
+> ```bash
+> sudo chown -R $(whoami) "/Users/mirko/Library/Application Support/Caddy/"
+> sudo caddy run --config Caddyfile
+> ```
+
+Apri **https://gsa.test** — Caddy instrada:
+
+| Percorso | Destinazione |
+|----------|-------------|
+| `/api/*` | backend `:3001` |
+| `/auth/*` | backend `:3001` (callback OAuth) |
+| tutto il resto | Vite `:5173` (hot reload incluso) |
+
+### 3.5 Google OAuth con dominio locale
+
+Google non accetta `.test` nei redirect URI — il callback passa per `localhost`.
+
+In Google Console → **Authorized redirect URIs**:
+```
+http://localhost:3001/auth/google/callback
+```
+
+In Google Console → **Authorized JavaScript origins**:
+```
+https://gsa.test
+http://localhost:3001
+```
+
+Il flusso risultante:
+```
+https://gsa.test → Caddy → backend :3001
+  → Google OAuth → callback http://localhost:3001/auth/google/callback
+  → backend emette JWT → redirect https://gsa.test/?token=...
+```
+
+### 3.6 Il browser mostra ancora "Non sicuro"
+
+Il certificato è stato generato ma la CA non è ancora fidata. Con Caddy in esecuzione:
+```bash
+caddy trust
+```
+Poi riavvia il browser (o apri una finestra in incognito).
+
+### 3.7 Rimozione della voce hosts
+
+```bash
+sudo sed -i '' '/gsa\.it/d' /etc/hosts
+```
+
+---
+
+## 4. Struttura del progetto
 
 ```
 gsa-app-modular/
 │
 ├── .env                              ← variabili d'ambiente (NON committare)
-├── .env.example                      ← template .env
+├── .env.example                      ← template .env con tutti i campi documentati
 ├── .gitignore
+├── docker-compose.yml
+├── Dockerfile                        ← backend
+├── docker-entrypoint.sh
+├── ita.traineddata                   ← modello OCR Tesseract italiano
 ├── package.json                      ← dipendenze backend
-├── README.md
 │
 ├── docs/
 │   ├── er-schema.md                  ← schema entità-relazioni
-│   └── funzionalita.md               ← descrizione completa funzionalità
+│   ├── funzionalita.md               ← descrizione completa funzionalità
+│   └── specifiche_versamenti_entrate.md
 │
 ├── src/                              ← BACKEND Node.js (porta 3001)
 │   ├── server.js                     ← entry point Express
 │   │
-│   ├── shared/                       ← codice condiviso tra moduli
+│   ├── shared/
 │   │   ├── db/
 │   │   │   ├── pool.js               ← connessione PostgreSQL (pg.Pool)
-│   │   │   ├── schema.sql            ← schema v5 idempotente (unica fonte di verità)
-│   │   │   ├── migrate.js            ← applica schema.sql al DB
-│   │   │   ├── seed.js               ← dati di esempio opzionali
-│   │   │   └── migrations/           ← migrazioni storiche (002–013)
+│   │   │   ├── schema.sql            ← schema idempotente (unica fonte di verità)
+│   │   │   └── migrate.js            ← applica schema.sql al DB
 │   │   ├── middleware.js             ← helper h() + errorHandler
 │   │   └── storage.js                ← lettura/scrittura file su disco
 │   │
-│   └── modules/                      ← moduli di dominio
+│   └── modules/
+│       ├── auth/                     ← autenticazione JWT + Google OAuth
+│       │   ├── routes.js             ← /auth/me, /auth/google, /auth/google/callback
+│       │   ├── userRepo.js           ← CRUD utenti + restrizioni viewer
+│       │   └── middleware.js         ← requireAuth, requireRole
 │       │
 │       ├── anagrafica/               ← appartamenti, proprietari, inquilini, tipi spesa
-│       │   ├── appartamentiRepo.js
-│       │   ├── proprietariRepo.js
-│       │   ├── tipiSpesaRepo.js
-│       │   ├── routes.js
-│       │   └── index.js
-│       │
 │       ├── documenti/                ← spese PDF + pipeline OCR
-│       │   ├── repo.js
-│       │   ├── extractor.js          ← pdf-parse + Tesseract OCR
-│       │   ├── routes.js
-│       │   └── index.js
-│       │
 │       ├── movimenti/                ← versamenti CRUD
-│       │   ├── repo.js
-│       │   ├── routes.js
-│       │   └── index.js
-│       │
 │       ├── contabilita/              ← griglia, dashboard, regole, report
-│       │   ├── grigliaSvc.js         ← logica griglia economica e dashboard
-│       │   ├── reportSvc.js          ← generazione report PDF
-│       │   ├── reportSalvatiRepo.js
-│       │   ├── ripartiRepo.js        ← CRUD regole di riparto
-│       │   ├── grigliaExport.js      ← export ZIP griglia
-│       │   ├── routes.js
-│       │   └── index.js
-│       │
 │       └── archivio/                 ← documentale generico
-│           ├── repo.js
-│           ├── routes.js
-│           └── index.js
 │
-├── storage/
-│   ├── pdf/                          ← PDF delle bollette/spese
-│   └── archivio/                     ← file del documentale generico
-│
-└── frontend/                         ← FRONTEND React + Vite (porta 5173)
+└── frontend/                         ← FRONTEND React + Vite (porta 5173 in dev)
     ├── package.json
-    ├── vite.config.js                ← proxy /api → localhost:3001
-    ├── index.html
+    ├── vite.config.js                ← proxy /api → localhost:3001 (solo sviluppo)
+    ├── nginx.conf                    ← configurazione nginx per il container frontend
+    ├── Dockerfile
+    ├── .dockerignore
     └── src/
         ├── main.jsx
-        ├── App.jsx                   ← layout + navigazione a tab
-        ├── api.js                    ← client REST verso il backend
-        ├── index.css
-        ├── components/
-        │   └── ui.jsx                ← componenti UI riusabili
-        ├── utils/
-        │   └── formatters.js
+        ├── App.jsx
+        ├── api.js                    ← client REST (usa URL relativi /api/...)
+        ├── context/
+        │   └── AuthContext.jsx       ← stato autenticazione globale
         └── tabs/
-            ├── Dashboard.jsx         ← KPI e saldi
-            ├── appartamenti.jsx      ← anagrafica appartamenti
-            ├── Proprietari.jsx       ← anagrafica proprietari
-            ├── componenti.jsx        ← lista inquilini
-            ├── tipologie.jsx         ← tipi di spesa
-            ├── documenti.jsx         ← spese e bollette PDF
-            ├── versamenti.jsx        ← entrate e versamenti
-            ├── riparti.jsx           ← regole di riparto
-            ├── griglia.jsx           ← griglia economica
-            ├── report.jsx            ← report PDF
-            ├── Documentale.jsx       ← archivio documentale
-            └── altri.jsx
+            ├── Dashboard.jsx
+            ├── griglia.jsx
+            ├── report.jsx
+            ├── appartamenti.jsx
+            ├── Proprietari.jsx
+            ├── componenti.jsx
+            ├── documenti.jsx
+            ├── versamenti.jsx
+            ├── riparti.jsx
+            ├── tipologie.jsx
+            ├── Documentale.jsx
+            ├── GestioneUtenti.jsx    ← tab admin: crea/modifica utenti
+            └── GestioneRuoli.jsx     ← tab admin: restrizioni viewer
 ```
 
 ---
 
-## 2. Prerequisiti di sistema
+## 5. Prerequisiti di sistema
 
-### Node.js 18 o superiore
+Necessari solo per l'avvio **manuale** (senza Docker).
 
-**macOS:**
+### Node.js 20+
+
 ```bash
+# macOS
 brew install node
-```
 
-**Ubuntu/Debian:**
-```bash
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+# Ubuntu/Debian
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install -y nodejs
+
+# Verifica
+node -v   # v20.x.x o superiore
 ```
 
-**Windows:** scarica l'installer LTS da https://nodejs.org
+### PostgreSQL 16+
 
-Verifica:
 ```bash
-node -v    # deve mostrare v18.x.x o superiore
-npm -v
-```
-
----
-
-### PostgreSQL 16
-
-**macOS:**
-```bash
+# macOS
 brew install postgresql@16
 brew services start postgresql@16
-export PATH="/opt/homebrew/opt/postgresql@16/bin:$PATH"
-# Rendi permanente aggiungendo la riga a ~/.zshrc
-echo 'export PATH="/opt/homebrew/opt/postgresql@16/bin:$PATH"' >> ~/.zshrc
-```
 
-**Ubuntu/Debian:**
-```bash
-sudo apt update
+# Ubuntu/Debian
 sudo apt install -y postgresql postgresql-contrib
-sudo systemctl start postgresql
-sudo systemctl enable postgresql
-```
+sudo systemctl start postgresql && sudo systemctl enable postgresql
 
-**Windows:** scarica l'installer da https://www.postgresql.org/download/windows/
-
-Verifica:
-```bash
+# Verifica
 psql --version
 ```
 
----
+### GraphicsMagick e Ghostscript (OCR su PDF scansionati)
 
-### GraphicsMagick e Ghostscript (richiesti per OCR su PDF scansionati)
-
-**macOS:**
 ```bash
+# macOS
 brew install graphicsmagick ghostscript
-```
 
-**Ubuntu/Debian:**
-```bash
+# Ubuntu/Debian
 sudo apt install -y graphicsmagick ghostscript
 ```
 
-**Windows:**
-- GraphicsMagick: http://www.graphicsmagick.org/download.html
-- Ghostscript: https://www.ghostscript.com/releases/gsdnld.html
-
-Verifica:
-```bash
-gm -version
-gs --version
-```
-
-> Se GraphicsMagick non è installato, i PDF testuali vengono processati normalmente con pdf-parse. Solo i PDF scansionati (immagini) richiedono GraphicsMagick + Ghostscript per l'OCR.
+> Senza GraphicsMagick i PDF testuali continuano a funzionare normalmente; solo i PDF scansionati (immagini) richiedono queste dipendenze.
 
 ---
 
-## 3. Installazione da repository Git
+## 6. Installazione e avvio manuale
+
+### Configurazione PostgreSQL
 
 ```bash
-git clone <url-repository> gsa-app-modular
-cd gsa-app-modular
-```
-
----
-
-## 4. Configurazione PostgreSQL
-
-Accedi alla console PostgreSQL:
-
-**macOS:**
-```bash
+# macOS
 psql postgres
-```
-
-**Ubuntu/Debian:**
-```bash
+# Ubuntu
 sudo -u postgres psql
 ```
-
-**Windows** — apri "SQL Shell (psql)" dal menu Start e premi Invio alle prime domande:
-```
-Server [localhost]: ↵
-Database [postgres]: ↵
-Port [5432]: ↵
-Username [postgres]: ↵
-Password: <password scelta durante l'installazione>
-```
-
-Una volta dentro la console `psql`, esegui:
 
 ```sql
 CREATE USER gsa_user WITH PASSWORD 'changeme';
@@ -301,59 +491,178 @@ GRANT ALL PRIVILEGES ON DATABASE gsa_db TO gsa_user;
 \q
 ```
 
-Verifica la connessione:
-```bash
-psql -h localhost -U gsa_user -d gsa_db -c "SELECT version();"
-# Password: changeme
-```
-
----
-
-## 5. Configurazione variabili d'ambiente
-
-Crea il file `.env` nella cartella radice del progetto:
+### Configurazione .env
 
 ```bash
 cp .env.example .env
+# Edita .env con i tuoi valori
 ```
 
-Apri `.env` e compila:
+### Installazione dipendenze
 
-```
-# Porta backend (default 3001)
-PORT=3001
+```bash
+# Backend (dalla cartella radice)
+npm install
 
-# PostgreSQL
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=gsa_db
-DB_USER=gsa_user
-DB_PASSWORD=changeme
-DB_SSL=false
-
-# Dimensione massima upload file (default 20 MB)
-MAX_FILE_SIZE=20971520
-
-# Soglia caratteri sotto cui attiva OCR (default 120)
-OCR_MIN_CHARS=120
-
-# Lingua Tesseract per OCR
-TESSERACT_LANG=ita
-
-# Percorso storage PDF bollette (default: ./storage/pdf/)
-# STORAGE_PATH=/percorso/assoluto/storage/pdf
-
-# Percorso storage archivio documentale (default: ./storage/archivio/)
-# ARCHIVIO_PATH=/percorso/assoluto/storage/archivio
+# Frontend
+cd frontend && npm install && cd ..
 ```
 
-> Il file `.env` non viene mai committato su Git (è in `.gitignore`).
+### Migrazione database
+
+```bash
+npm run db:migrate
+```
+
+### Avvio
+
+Apri **due terminali**:
+
+**Terminale 1 — backend:**
+```bash
+npm run dev
+# ✅  Backend → http://localhost:3001
+```
+
+**Terminale 2 — frontend:**
+```bash
+cd frontend
+npm run dev
+# ➜  Local: http://localhost:5173/
+```
+
+Apri il browser su **http://localhost:5173**
 
 ---
 
-## 6. Schema e migrazione del database
+## 7. Variabili d'ambiente
 
-Lo script di migrazione applica `src/shared/db/schema.sql`, che è **idempotente**: funziona sia su un database vuoto (prima installazione) sia su un database esistente a qualsiasi versione precedente dello schema.
+Tutte le variabili vanno nel file `.env` nella cartella radice. Il file `.env.example` contiene il template completo con descrizioni.
+
+| Variabile | Obbligatoria | Default | Descrizione |
+|-----------|:---:|---------|-------------|
+| `DB_HOST` | sì | `localhost` | Host PostgreSQL (`db` in Docker) |
+| `DB_PORT` | no | `5432` | Porta PostgreSQL |
+| `DB_NAME` | no | `gsa_db` | Nome database |
+| `DB_USER` | no | `gsa_user` | Utente database |
+| `DB_PASSWORD` | sì | — | Password database |
+| `DB_SSL` | no | `false` | SSL per connessione DB (`true` per servizi cloud) |
+| `PORT` | no | `3001` | Porta del backend Express |
+| `HTTP_PORT` | no | `80` | Porta esposta da nginx (container frontend) |
+| `JWT_SECRET` | sì | — | Segreto per firmare i token JWT (min. 32 caratteri) |
+| `GOOGLE_CLIENT_ID` | per OAuth | — | Client ID Google Cloud Console |
+| `GOOGLE_CLIENT_SECRET` | per OAuth | — | Client Secret Google Cloud Console |
+| `FRONTEND_URL` | sì | `http://localhost:5173` | URL pubblico del frontend (usato per redirect OAuth) |
+| `BACKEND_URL` | sì | `http://localhost:3001` | URL pubblico del backend (costruisce il `redirect_uri`) |
+| `ADMIN_EMAIL` | consigliata | — | Email del primo utente che riceve automaticamente il ruolo `admin` |
+| `MAX_FILE_SIZE` | no | `20971520` | Dimensione massima upload in byte (20 MB) |
+| `OCR_MIN_CHARS` | no | `120` | Soglia caratteri sotto cui attiva OCR |
+| `TESSERACT_LANG` | no | `ita` | Lingua Tesseract per OCR |
+
+> **Sicurezza:** Il file `.env` non deve mai essere committato su Git.
+> Genera `JWT_SECRET` con: `openssl rand -hex 64`
+
+---
+
+## 8. Autenticazione Google OAuth
+
+GSA usa Google come unico provider di autenticazione. I nuovi utenti che si registrano con Google vengono creati con ruolo `editor` (modifica) o `viewer` (sola lettura) — l'admin assegna i ruoli dalla tab Amministrazione.
+
+### 7.1 Creare le credenziali Google
+
+1. Vai su [Google Cloud Console](https://console.cloud.google.com/) → seleziona o crea un progetto
+2. Menu → **APIs & Services** → **Credentials**
+3. Clic su **+ Create Credentials** → **OAuth client ID**
+4. Application type: **Web application**
+5. Nome: `GSA` (o qualsiasi)
+6. **Authorized redirect URIs** — aggiungi:
+   - Sviluppo locale: `http://localhost:3001/auth/google/callback`
+   - Produzione: `https://gsa.mio-dominio.it/auth/google/callback`
+7. Clic **Create** → copia **Client ID** e **Client Secret**
+
+### 7.2 Configurazione
+
+Inserisci in `.env`:
+
+```bash
+GOOGLE_CLIENT_ID=732897461114-xxxx.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=GOCSPX-xxxx
+FRONTEND_URL=https://gsa.mio-dominio.it
+BACKEND_URL=https://gsa.mio-dominio.it
+ADMIN_EMAIL=tua@email.com
+```
+
+> **`BACKEND_URL`** deve corrispondere esattamente al dominio del redirect URI registrato in Google Console (senza slash finale).
+> Il callback è sempre `${BACKEND_URL}/auth/google/callback`.
+
+### 7.3 Primo accesso
+
+1. Avvia l'applicazione
+2. Clicca "Accedi con Google" nella pagina di login
+3. Esegui l'accesso con l'account corrispondente a `ADMIN_EMAIL`
+4. L'account riceve automaticamente il ruolo `admin`
+5. Tutti gli account successivi ricevono ruolo `editor` — l'admin può modificarli
+
+### 7.4 Flusso OAuth
+
+```
+Browser → /api/auth/google
+       → Google (autorizzazione)
+       → /auth/google/callback (nginx → backend)
+       → backend verifica → crea/aggiorna utente
+       → redirect a FRONTEND_URL/?token=<jwt>
+       → frontend memorizza il token e autentica l'utente
+```
+
+---
+
+## 9. Ruoli e gestione utenti
+
+### 8.1 Ruoli disponibili
+
+| Ruolo | Permessi |
+|-------|----------|
+| `admin` | Accesso completo + gestione utenti + configurazione ruoli |
+| `editor` | Lettura e scrittura di tutti i dati (no gestione utenti) |
+| `viewer` | Sola lettura — può essere limitato a specifici appartamenti/inquilini |
+
+### 8.2 Gestione utenti (tab Amministrazione → Gestione Utenti)
+
+Solo gli amministratori possono:
+- Vedere la lista di tutti gli utenti registrati
+- Cambiare il ruolo di un utente (admin / editor / viewer)
+- Disabilitare un account (l'utente non può più fare login)
+- Eliminare un account
+- Creare manualmente un account (senza login OAuth — utile per inviti)
+
+### 8.3 Restrizioni Viewer (tab Amministrazione → Gestione Ruoli)
+
+Un utente con ruolo `viewer` ha accesso in sola lettura. L'admin può restringere ulteriormente la visibilità:
+
+- **Appartamenti** — se nessuno selezionato: vede tutti. Se selezionati: vede solo quelli.
+- **Inquilini** — se nessuno selezionato: vede tutti. Se selezionati: vede solo quelli.
+
+Le restrizioni si applicano a tutte le sezioni: griglia, report, dashboard, spese, movimenti.
+
+### 8.4 Primo setup senza ADMIN_EMAIL
+
+Se non hai impostato `ADMIN_EMAIL`, puoi promuovere manualmente il primo utente da database:
+
+```bash
+# Con Docker
+docker compose exec db psql -U gsa_user -d gsa_db \
+  -c "UPDATE users SET ruolo = 'admin' WHERE email = 'tua@email.com';"
+
+# Senza Docker
+psql -U gsa_user -d gsa_db \
+  -c "UPDATE users SET ruolo = 'admin' WHERE email = 'tua@email.com';"
+```
+
+---
+
+## 10. Schema e migrazione del database
+
+Lo script di migrazione applica `src/shared/db/schema.sql`, che è **idempotente**: funziona sia su un database vuoto (prima installazione) sia su un database esistente a qualsiasi versione precedente.
 
 ```bash
 npm run db:migrate
@@ -365,191 +674,87 @@ Output atteso:
 ✅  Schema applicato.
 ```
 
-**Dati iniziali (opzionale):**
-```bash
-npm run db:seed
-```
-Inserisce 6 tipologie di spesa predefinite: Acqua, Luce, Gas, TARI, Condominio, Altro.
+Con Docker la migrazione viene eseguita automaticamente all'avvio del backend.
 
-> `npm run db:migrate` è sicuro da rieseguire in qualsiasi momento: non distrugge dati esistenti. Aggiunge automaticamente tabelle e colonne mancanti.
-
-### Versione schema attuale (v5)
-
-Le principali tabelle del database sono:
+### Tabelle principali
 
 | Tabella | Descrizione |
 |---------|-------------|
+| `users` | Utenti autenticati con ruolo e provider OAuth |
+| `user_appartamenti` | Restrizioni appartamenti per ruolo viewer |
+| `user_inquilini` | Restrizioni inquilini per ruolo viewer |
 | `appartamenti` | Anagrafica appartamenti |
 | `proprietari` | Anagrafica proprietari |
-| `appartamento_proprietari` | Associazione proprietario ↔ appartamento con % e periodo |
+| `appartamento_proprietari` | Associazione proprietario ↔ appartamento (% e periodo) |
 | `componenti` | Inquilini con quota affitto, caparra e date validità |
 | `tipi_spesa` | Categorie di spesa |
 | `documenti` | Bollette/fatture PDF con testo estratto e importo |
-| `documenti_audit` | Log modifiche ai documenti |
-| `movimenti` | Versamenti con segno, tipo, data e mese riferimento |
+| `movimenti` | Versamenti con segno, tipo, data e mese di riferimento |
 | `regole_riparto` | Regole distribuzione spese e entrate |
-| `regole_riparto_esclusi/inclusi` | Inquilini esclusi/inclusi da una regola |
-| `regole_riparto_esclusi/inclusi_prop` | Proprietari esclusi/inclusi (riparto entrate) |
 | `report_salvati` | Report PDF generati e salvati |
-| `archivio_tipi_documento` | Classificazione documenti archiviati |
+| `archivio_tipi_documento` | Classificazione documenti d'archivio |
 | `archivio_documenti` | Documenti generici (contratti, verbali, planimetrie…) |
-| `archivio_associazioni` | Collegamento documento ↔ entità |
 
 Per lo schema completo: [docs/er-schema.md](docs/er-schema.md)
 
 ---
 
-## 7. Installazione dipendenze
+## 11. Architettura
 
-**Backend** (dalla cartella radice):
-```bash
-npm install
-```
-
-**Frontend:**
-```bash
-cd frontend
-npm install
-cd ..
-```
-
----
-
-## 8. Avvio del progetto
-
-Apri **due terminali separati**.
-
-**Terminale 1 — backend:**
-```bash
-cd gsa-app-modular
-npm run dev
-```
-Output atteso:
-```
-✅  Backend → http://localhost:3001
-    DB: localhost:5432/gsa_db
-```
-
-**Terminale 2 — frontend:**
-```bash
-cd gsa-app-modular/frontend
-npm run dev
-```
-Output atteso:
-```
-  VITE v5.x.x  ready in ~300 ms
-  ➜  Local:   http://localhost:5173/
-```
-
-Apri il browser su **http://localhost:5173**
-
-**Verifica backend:**
-```bash
-curl http://localhost:3001/api/health
-# Risposta: {"ok":true,"ts":"..."}
-```
-
-### Avvio in produzione
-
-```bash
-# Build frontend
-cd frontend && npm run build && cd ..
-
-# Avvia backend (serve anche i file statici del frontend con un reverse proxy)
-npm start
-```
-
-Per la produzione si consiglia di usare **nginx** o **Caddy** come reverse proxy:
-- servire `/` dai file statici della directory `frontend/dist/`
-- girare `/api/*` al backend su `localhost:3001`
-
----
-
-## 9. Architettura
-
-### 9.1 Monolite modulare
+### 10.1 Monolite modulare
 
 Il backend è organizzato come **monolite modulare**: un unico processo Node.js con moduli di dominio separati che comunicano attraverso interfacce pubbliche (`index.js`). Nessuna dipendenza SQL cross-modulo.
 
 ```
-server.js
-  └─ monta i router di ciascun modulo su /api/<risorsa>
-
-src/modules/
-  anagrafica/    → /api/appartamenti, /api/proprietari, /api/associazioni, /api/tipi-spesa
-  documenti/     → /api/documenti
-  movimenti/     → /api/movimenti
-  contabilita/   → /api/griglia, /api/dashboard, /api/regole, /api/report
-  archivio/      → /api/archivio, /api/archivio-tipi
+src/server.js
+  ├── app.use("/auth",     authRouter)       ← OAuth callbacks
+  ├── app.use("/api/auth", authRouter)       ← API autenticazione
+  ├── app.use("/api",      requireAuth)      ← tutto il resto richiede JWT
+  ├── app.use("/api/appartamenti", ...)
+  ├── app.use("/api/documenti", ...)
+  └── ...
 ```
 
-Ogni modulo ha:
-- `routes.js` — definizione endpoint REST
-- `repo.js` / `*Repo.js` — query SQL e logica di dominio
-- `index.js` — API pubblica verso altri moduli (se necessaria)
+### 10.2 URL e proxy
 
-### 9.2 Livelli
+| Ambiente | Frontend | /api/* | /auth/* |
+|----------|----------|--------|---------|
+| Sviluppo | Vite :5173 | Vite proxy → backend :3001 | — (non usato in dev) |
+| Docker / produzione | nginx :80 | nginx → backend :3001 | nginx → backend :3001 |
 
-| Livello | File | Responsabilità |
-|---------|------|----------------|
-| Entry point | `src/server.js` | Inizializza Express, monta i router |
-| Routes | `modules/*/routes.js` | Definisce endpoint REST del modulo |
-| Repository | `modules/*/repo.js` | Query SQL, transazioni |
-| Service | `modules/contabilita/grigliaSvc.js` | Logica di calcolo griglia, dashboard |
-| Pipeline | `modules/documenti/extractor.js` | OCR su PDF |
-| Report | `modules/contabilita/reportSvc.js` | Generazione PDF con pdfkit |
-| Storage | `shared/storage.js` | Lettura/scrittura file su disco |
-| DB | `shared/db/pool.js` | Pool connessioni PostgreSQL |
+Il frontend usa sempre URL relativi (`/api/...`): funziona su qualsiasi dominio senza variabili d'ambiente baked nel bundle.
 
-### 9.3 Frontend
-
-SPA React con navigazione a tab. Vite proxia `/api/*` al backend (porta 3001) in sviluppo.
-
-| Tab | Componente | Funzione |
-|-----|-----------|----------|
-| Dashboard | `Dashboard.jsx` | KPI annuali, saldi inquilini e proprietari |
-| Griglia Economica | `griglia.jsx` | Griglia per periodo: spese, versamenti, conguaglio |
-| Report | `report.jsx` | Generazione e salvataggio report PDF |
-| Appartamenti | `appartamenti.jsx` | Anagrafica appartamenti con documenti allegati |
-| Proprietari | `Proprietari.jsx` | Anagrafica proprietari con documenti allegati |
-| Inquilini | `componenti.jsx` | Lista inquilini, propagazione date, documenti |
-| Spese | `documenti.jsx` | Upload PDF, OCR, gestione bollette, buchi utenze |
-| Entrate | `versamenti.jsx` | Versamenti, import CSV, rimborsi |
-| Riparti | `riparti.jsx` | Regole riparto spese e entrate |
-| Tipi Spesa | `tipologie.jsx` | Categorie di spesa |
-| Documentale | `Documentale.jsx` | Archivio generico (contratti, verbali…) |
-
-### 9.4 Pipeline OCR
+### 10.3 Pipeline OCR
 
 Quando viene caricato un PDF di spesa:
 
 1. **pdf-parse** estrae il testo direttamente (PDF testuali)
-2. Se il testo è inferiore a `OCR_MIN_CHARS` caratteri (PDF scansionati):
+2. Se il testo è inferiore a `OCR_MIN_CHARS` caratteri:
    - **pdf2pic** converte il PDF in immagini tramite GraphicsMagick + Ghostscript
-   - **Tesseract.js** esegue OCR per ogni pagina in italiano
-3. Il sistema propone automaticamente: importo, fornitore, periodo, tipo spesa
-4. Il file PDF viene salvato in `storage/pdf/{uuid}.pdf`
+   - **Tesseract.js** esegue OCR in italiano (`ita.traineddata`)
+3. Il sistema propone: importo, fornitore, periodo, tipo di spesa
+4. Il PDF viene salvato in `storage/pdf/{uuid}.pdf`
 
-### 9.5 Calcolo conguaglio
+### 10.4 Calcolo conguaglio
 
 ```
 Conguaglio = Versato − Spese dovute − Affitto
 ```
 
-- **Versato**: somma dei movimenti nel periodo (segno applicato: rimborsi con -1)
-- **Spese dovute**: quota di competenza calcolata applicando le regole di riparto all'importo totale delle bollette del periodo
-- **Affitto**: `quota_affitto × numero_mesi_di_competenza`
-- Positivo (verde) = credito dell'inquilino
-- Negativo (rosso) = importo ancora da versare
+- **Versato** — somma movimenti nel periodo (rimborsi con segno negativo)
+- **Spese dovute** — quota di competenza secondo regole di riparto
+- **Affitto** — `quota_affitto × mesi di competenza`
+- Verde = credito dell'inquilino / Rosso = debito residuo
 
 ---
 
-## 10. Risoluzione problemi
+## 12. Risoluzione problemi
 
-### `Mancano in .env: DB_HOST, ...` all'avvio del backend
-Il file `.env` non viene trovato. Deve stare nella cartella radice (dove si trova `package.json`).
+### Il backend non parte: `Mancano in .env: JWT_SECRET`
+Il file `.env` non contiene le variabili obbligatorie. Controlla che esista nella cartella radice:
 ```bash
-ls -la | grep env   # deve comparire .env
+ls -la | grep "^\.env$"
+cat .env | grep JWT_SECRET
 ```
 
 ### `Error: connect ECONNREFUSED 127.0.0.1:5432`
@@ -560,48 +765,62 @@ sudo systemctl start postgresql      # Ubuntu
 ```
 
 ### `password authentication failed for user "gsa_user"`
-La password nel `.env` non corrisponde a quella del DB.
 ```bash
 psql -U postgres -c "ALTER USER gsa_user WITH PASSWORD 'changeme';"
 ```
 
-### Il frontend mostra pagina bianca o errori di rete
-Il backend non è avviato. Verifica che il terminale del backend mostri `✅ Backend → http://localhost:3001`.
+### Il frontend mostra pagina bianca
+Il backend non è avviato. Verifica con:
+```bash
+curl http://localhost:3001/api/health
+```
+
+### Login Google non funziona: `Google OAuth non configurato`
+`GOOGLE_CLIENT_ID` non è impostato nel `.env`. Verifica e riavvia il backend.
+
+### Login Google: `redirect_uri_mismatch`
+Il `redirect_uri` che il backend invia a Google non corrisponde a quello registrato in Google Console.
+Verifica che `BACKEND_URL` nel `.env` corrisponda esattamente al dominio registrato:
+```
+URI registrato in Google Console: https://gsa.mio-dominio.it/auth/google/callback
+BACKEND_URL nel .env:             https://gsa.mio-dominio.it   ← senza slash finale
+```
+
+### Login Google: `account_disabled`
+L'account esiste ma è stato disabilitato. Un admin deve riabilitarlo dalla tab Gestione Utenti.
 
 ### `GraphicsMagick not found` durante upload PDF
-GraphicsMagick non è nel PATH. L'OCR su PDF scansionati non funzionerà; i PDF testuali continuano a funzionare normalmente.
+I PDF testuali continuano a funzionare. Per i PDF scansionati installa GraphicsMagick:
 ```bash
-which gm
-# macOS Apple Silicon:
+# macOS Apple Silicon
+brew install graphicsmagick ghostscript
 echo 'export PATH="/opt/homebrew/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
 ```
 
-### `Cannot find module` all'avvio
+### `relation "..." does not exist` — tabelle mancanti
+```bash
+npm run db:migrate
+```
+
+### La porta 80 è già in uso (Docker)
+Cambia `HTTP_PORT` nel `.env`:
+```bash
+HTTP_PORT=8080
+```
+Poi `docker compose up -d` e accedi su `http://localhost:8080`.
+
+### Aggiornare a una nuova versione
+```bash
+git pull
+docker compose up --build -d
+# La migrazione DB viene eseguita automaticamente
+```
+
+### `Cannot find module` all'avvio manuale
 ```bash
 # Backend
-rm -rf node_modules package-lock.json
-npm install
+rm -rf node_modules && npm install
 
 # Frontend
-cd frontend && rm -rf node_modules package-lock.json && npm install
+cd frontend && rm -rf node_modules && npm install
 ```
-
-### `relation "..." does not exist` — tabelle mancanti
-Esegui la migrazione:
-```bash
-npm run db:migrate
-```
-
-### Aggiornare un database esistente alla versione corrente
-Lo schema è idempotente: riesegui semplicemente la migrazione.
-```bash
-npm run db:migrate
-```
-Rileva automaticamente le colonne e tabelle mancanti e le aggiunge senza toccare i dati esistenti.
-
-### La porta 3001 è già in uso
-```bash
-lsof -ti :3001 | xargs kill -9
-npm run dev
-```
-Il comando `npm run dev` include già questo cleanup automaticamente.

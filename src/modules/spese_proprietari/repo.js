@@ -119,6 +119,26 @@ export async function update(id, d) {
     if (d.quote !== undefined) {
       await saveQuote(client, spesa.id, d.quote, propId);
     }
+
+    // Audit log — registra ogni campo modificato
+    const campiAudit = [
+      "proprietario_id", "appartamento_id", "tipo_spesa_id",
+      "importo", "periodicita",
+      "validita_da", "validita_a", "data_pagamento", "mese_competenza",
+      "fornitore", "numero_fattura", "descrizione", "stato",
+    ];
+    for (const campo of campiAudit) {
+      const da = String(existing[campo] ?? "");
+      const a  = String(spesa[campo]   ?? "");
+      if (da !== a) {
+        await client.query(
+          `INSERT INTO spese_proprietari_audit (spesa_id, campo, valore_da, valore_a)
+           VALUES ($1,$2,$3,$4)`,
+          [id, campo, da, a]
+        );
+      }
+    }
+
     return spesa;
   });
 }
@@ -131,4 +151,13 @@ export async function updateStato(id, stato) {
 
 export async function remove(id) {
   await query(`DELETE FROM spese_proprietari WHERE id=$1`, [id]);
+}
+
+export async function getAuditLog(id) {
+  return query(
+    `SELECT * FROM spese_proprietari_audit
+     WHERE spesa_id = $1
+     ORDER BY created_at DESC`,
+    [id]
+  );
 }
