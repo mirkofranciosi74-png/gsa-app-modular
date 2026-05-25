@@ -1,34 +1,109 @@
 # GSA — Riferimento API
 
-**Base URL:** `http://localhost:3001/api`  
+**Base URL:** `http://localhost:3001`  
 **Formato:** JSON (tranne dove indicato diversamente)  
 **Content-Type richieste:** `application/json` (o `multipart/form-data` per upload file)  
-**Autenticazione:** nessuna (applicativo ad uso locale/privato)
+**Autenticazione:** JWT Bearer Token (ottenuto tramite Google OAuth)
+
+### Autenticazione
+
+Tutti gli endpoint `/api/*` richiedono un header `Authorization`:
+
+```
+Authorization: Bearer <jwt-token>
+```
+
+Il token si ottiene completando il flusso OAuth:
+1. Reindirizza il browser a `GET /api/auth/google`
+2. Dopo l'autorizzazione Google, il backend fa redirect a `FRONTEND_URL/?token=<jwt>`
+3. Salva il token e includilo in tutte le richieste API successive
+
+Il token ha validità 7 giorni. Un `401` indica token scaduto o assente — reindirizzare al login.
 
 ---
 
 ## Indice
 
-1. [Health](#1-health)
-2. [Appartamenti](#2-appartamenti)
-3. [Componenti (Inquilini)](#3-componenti-inquilini)
-4. [Proprietari](#4-proprietari)
-5. [Associazioni Proprietario-Appartamento](#5-associazioni-proprietario-appartamento)
-6. [Tipi di Spesa](#6-tipi-di-spesa)
-7. [Spese (Documenti)](#7-spese-documenti)
-8. [Movimenti (Versamenti)](#8-movimenti-versamenti)
-9. [Griglia Economica](#9-griglia-economica)
-10. [Regole di Riparto](#10-regole-di-riparto)
-11. [Dashboard](#11-dashboard)
-12. [Report](#12-report)
-13. [Archivio Documentale](#13-archivio-documentale)
-14. [Amministrazione](#14-amministrazione)
-15. [Modelli di dato](#15-modelli-di-dato)
-16. [Codici di errore](#16-codici-di-errore)
+1. [Autenticazione](#1-autenticazione)
+2. [Health](#2-health)
+3. [Appartamenti](#3-appartamenti)
+4. [Componenti (Inquilini)](#4-componenti-inquilini)
+5. [Proprietari](#5-proprietari)
+6. [Associazioni Proprietario-Appartamento](#6-associazioni-proprietario-appartamento)
+7. [Tipi di Spesa](#7-tipi-di-spesa)
+8. [Spese (Documenti)](#8-spese-documenti)
+9. [Movimenti (Versamenti)](#9-movimenti-versamenti)
+10. [Griglia Economica](#10-griglia-economica)
+11. [Regole di Riparto](#11-regole-di-riparto)
+12. [Dashboard](#12-dashboard)
+13. [Report](#13-report)
+14. [Archivio Documentale](#14-archivio-documentale)
+15. [Gestione Utenti (admin)](#15-gestione-utenti-admin)
+16. [Amministrazione](#16-amministrazione)
+17. [Modelli di dato](#17-modelli-di-dato)
+18. [Codici di errore](#18-codici-di-errore)
 
 ---
 
-## 1. Health
+## 1. Autenticazione
+
+### `GET /api/auth/google`
+
+Avvia il flusso Google OAuth. Redirige il browser alla pagina di autorizzazione Google.
+
+> Nessun header richiesto. Usare aprendo questa URL nel browser, non come chiamata fetch.
+
+---
+
+### `GET /auth/google/callback`
+
+Endpoint di callback OAuth — chiamato automaticamente da Google dopo l'autorizzazione.  
+Restituisce un redirect a `FRONTEND_URL/?token=<jwt>` in caso di successo, oppure a `FRONTEND_URL/?auth_error=<motivo>` in caso di errore.
+
+**Possibili valori di `auth_error`:**
+
+| Valore | Descrizione |
+|--------|-------------|
+| `cancelled` | L'utente ha annullato il login |
+| `token_exchange_failed` | Scambio code↔token Google fallito |
+| `account_disabled` | L'account è stato disabilitato dall'admin |
+
+---
+
+### `GET /api/auth/me`
+
+Restituisce il profilo dell'utente autenticato, incluse le restrizioni viewer.
+
+**Header:** `Authorization: Bearer <token>`
+
+**Risposta `200`**
+```json
+{
+  "id": "uuid",
+  "email": "utente@esempio.it",
+  "nome": "Mario",
+  "cognome": "Rossi",
+  "avatar_url": "https://...",
+  "ruolo": "viewer",
+  "attivo": true,
+  "allowedAppartamenti": ["uuid-app-1", "uuid-app-2"],
+  "allowedInquilini": ["uuid-inq-1"]
+}
+```
+
+> `allowedAppartamenti` e `allowedInquilini` sono array vuoti per ruolo `admin`/`editor` (accesso totale).
+
+---
+
+### `POST /api/auth/logout`
+
+Invalida la sessione lato client (il token JWT rimane tecnicamente valido fino alla scadenza — il client deve eliminarlo).
+
+**Risposta `200`** — `{ "ok": true }`
+
+---
+
+## 2. Health
 
 ### `GET /api/health`
 
@@ -41,7 +116,7 @@ Verifica che il backend sia operativo.
 
 ---
 
-## 2. Appartamenti
+## 3. Appartamenti
 
 ### `GET /api/appartamenti`
 
@@ -104,7 +179,7 @@ Verifica che la somma delle percentuali dei componenti sia valida.
 
 ---
 
-## 3. Componenti (Inquilini)
+## 4. Componenti (Inquilini)
 
 I componenti sono sempre gestiti nel contesto di un appartamento.
 
@@ -161,7 +236,7 @@ Elimina un componente.
 
 ---
 
-## 4. Proprietari
+## 5. Proprietari
 
 ### `GET /api/proprietari`
 
@@ -207,7 +282,7 @@ Aggiorna un proprietario. Accetta gli stessi campi di POST.
 
 ---
 
-## 5. Associazioni Proprietario-Appartamento
+## 6. Associazioni Proprietario-Appartamento
 
 ### `GET /api/associazioni/appartamento/:appId`
 
@@ -267,7 +342,7 @@ Aggiorna un'associazione. Accetta gli stessi campi di POST.
 
 ---
 
-## 6. Tipi di Spesa
+## 7. Tipi di Spesa
 
 ### `GET /api/tipi-spesa`
 
@@ -303,7 +378,7 @@ Restituisce sempre errore: i tipi spesa non si eliminano se in uso.
 
 ---
 
-## 7. Spese (Documenti)
+## 8. Spese (Documenti)
 
 ### `GET /api/documenti`
 
@@ -481,7 +556,7 @@ Elimina la spesa e il PDF associato.
 
 ---
 
-## 8. Movimenti (Versamenti)
+## 9. Movimenti (Versamenti)
 
 ### `GET /api/movimenti`
 
@@ -532,7 +607,7 @@ Accetta gli stessi campi di POST.
 
 ---
 
-## 9. Griglia Economica
+## 10. Griglia Economica
 
 ### `GET /api/griglia`
 
@@ -697,7 +772,7 @@ Valori di `modo`:
 
 ---
 
-## 10. Regole di Riparto
+## 11. Regole di Riparto
 
 Definiscono come suddividere spese o versamenti tra inquilini o proprietari in modo personalizzato.
 
@@ -741,7 +816,7 @@ Definiscono come suddividere spese o versamenti tra inquilini o proprietari in m
 
 ---
 
-## 11. Dashboard
+## 12. Dashboard
 
 ### `GET /api/dashboard`
 
@@ -815,7 +890,7 @@ Riepilogo economico per proprietari su tutti gli appartamenti.
 
 ---
 
-## 12. Report
+## 13. Report
 
 ### `POST /api/report/genera`
 
@@ -872,7 +947,7 @@ Salva un report generato.
 
 ---
 
-## 13. Archivio Documentale
+## 14. Archivio Documentale
 
 L'archivio raccoglie documenti generici (contratti, planimetrie, verbali, ecc.) associabili a qualsiasi entità del sistema.
 
@@ -977,7 +1052,112 @@ Elimina il documento e il file fisico.
 
 ---
 
-## 14. Amministrazione
+## 15. Gestione Utenti (admin)
+
+Tutti gli endpoint di questa sezione richiedono ruolo `admin`.
+
+### `GET /api/auth/users`
+
+Restituisce la lista di tutti gli utenti registrati.
+
+**Risposta `200`** — array di oggetti utente:
+```json
+[
+  {
+    "id": "uuid",
+    "email": "utente@esempio.it",
+    "nome": "Mario",
+    "cognome": "Rossi",
+    "avatar_url": null,
+    "ruolo": "editor",
+    "attivo": true
+  }
+]
+```
+
+---
+
+### `POST /api/auth/users`
+
+Crea manualmente un utente (senza richiedere il login Google).
+
+**Body**
+| Campo | Tipo | Obbligatorio |
+|-------|------|:---:|
+| `email` | string | ✓ |
+| `nome` | string | |
+| `cognome` | string | |
+| `ruolo` | `admin` \| `editor` \| `viewer` | ✓ |
+
+**Risposta `201`** — utente creato
+
+---
+
+### `PUT /api/auth/users/:id/ruolo`
+
+Modifica il ruolo di un utente.
+
+**Body** — `{ "ruolo": "viewer" }`
+
+**Risposta `200`** — utente aggiornato
+
+---
+
+### `PUT /api/auth/users/:id/attivo`
+
+Abilita o disabilita un account.
+
+**Body** — `{ "attivo": false }`
+
+**Risposta `200`** — utente aggiornato
+
+---
+
+### `DELETE /api/auth/users/:id`
+
+Elimina un utente. Non è possibile eliminare il proprio account.
+
+**Risposta `204`** — nessun contenuto
+
+---
+
+### `GET /api/auth/users/:id/appartamenti`
+
+Restituisce gli appartamenti consentiti a un viewer.
+
+**Risposta `200`** — array di `{ id, nome }`
+
+---
+
+### `PUT /api/auth/users/:id/appartamenti`
+
+Imposta gli appartamenti consentiti a un viewer. Array vuoto = accesso a tutti.
+
+**Body** — `{ "ids": ["uuid-app-1", "uuid-app-2"] }`
+
+**Risposta `200`** — `{ "ok": true }`
+
+---
+
+### `GET /api/auth/users/:id/inquilini`
+
+Restituisce gli inquilini consentiti a un viewer.
+
+**Risposta `200`** — array di `{ id, nome, cognome }`
+
+---
+
+### `PUT /api/auth/users/:id/inquilini`
+
+Imposta gli inquilini consentiti a un viewer. Array vuoto = accesso a tutti.
+
+**Body** — `{ "ids": ["uuid-inq-1", "uuid-inq-2"] }`
+
+**Risposta `200`** — `{ "ok": true }`
+
+---
+
+## 16. Amministrazione
 
 ### `GET /api/admin/backup`
 
@@ -1076,7 +1256,7 @@ Cancella il file di log.
 
 ---
 
-## 15. Modelli di dato
+## 17. Modelli di dato
 
 ### Appartamento
 ```json
@@ -1259,7 +1439,7 @@ Cancella il file di log.
 
 ---
 
-## 16. Codici di errore
+## 18. Codici di errore
 
 | Codice | Significato |
 |--------|-------------|

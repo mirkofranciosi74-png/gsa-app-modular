@@ -729,6 +729,7 @@ export function SpeseProprietari() {
   const [hashDupWarning,   setHashDupWarning]   = useState(null); // { nome_file, duplicati_allegati, duplicati_documenti }
   const [hashDupIntercept, setHashDupIntercept] = useState(null); // stesso shape, apre modal intercetto
   const [postSaveWarnings, setPostSaveWarnings] = useState([]);
+  const [auditLog,         setAuditLog]         = useState([]);
   const allegatiInputRef    = useRef(null);
   const pdfNuovoRef         = useRef(null);
   const formAllegaRef       = useRef(null);
@@ -860,6 +861,12 @@ export function SpeseProprietari() {
     setFiltroProprietario(""); setFiltroAppartamento(""); setFiltroTipo(""); setFiltroPeriodic("");
     setFiltroTesto(""); setFiltroSoloFuori(false); setFiltroStato(""); setFiltroDa(""); setFiltroA("");
   }
+
+  // Carica audit log quando si apre il modal per una spesa esistente
+  useEffect(() => {
+    if (!modal?.id) { setAuditLog([]); return; }
+    speseProprietariApi.audit(modal.id).then(setAuditLog).catch(() => setAuditLog([]));
+  }, [modal?.id]);
 
   // Carica associazioni quando cambia appartamento nel modal
   useEffect(() => {
@@ -1881,6 +1888,48 @@ export function SpeseProprietari() {
                   />
                 </div>
               </>
+            )}
+
+            {/* ── AUDIT LOG (solo spesa esistente) ── */}
+            {modal?.id && auditLog.length > 0 && (
+              <div style={{ marginTop: 20 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text2)",
+                              marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
+                  <i className="ti ti-history" />
+                  Storico modifiche ({auditLog.length})
+                </div>
+                <div style={{ maxHeight: 180, overflowY: "auto",
+                              border: "1px solid var(--border)", borderRadius: 6 }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                    <thead>
+                      <tr style={{ background: "var(--bg3)" }}>
+                        <th style={{ padding: "5px 8px", textAlign: "left", fontWeight: 600 }}>Campo</th>
+                        <th style={{ padding: "5px 8px", textAlign: "left", fontWeight: 600 }}>Da</th>
+                        <th style={{ padding: "5px 8px", textAlign: "left", fontWeight: 600 }}>A</th>
+                        <th style={{ padding: "5px 8px", textAlign: "right", fontWeight: 600, whiteSpace: "nowrap" }}>Data</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {auditLog.map((r, i) => (
+                        <tr key={i} style={{ borderTop: "1px solid var(--bg3)",
+                                             background: i % 2 === 0 ? "transparent" : "var(--bg2)" }}>
+                          <td style={{ padding: "4px 8px", color: "var(--accent)", fontWeight: 600 }}>{r.campo}</td>
+                          <td style={{ padding: "4px 8px", color: "#f87171", maxWidth: 160,
+                                       overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                              title={r.valore_da}>{r.valore_da || <span style={{ opacity: 0.3 }}>—</span>}</td>
+                          <td style={{ padding: "4px 8px", color: "#4ade80", maxWidth: 160,
+                                       overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                              title={r.valore_a}>{r.valore_a || <span style={{ opacity: 0.3 }}>—</span>}</td>
+                          <td style={{ padding: "4px 8px", textAlign: "right", color: "var(--text2)",
+                                       whiteSpace: "nowrap" }}>
+                            {new Date(r.created_at).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" })}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             )}
 
           </div>{/* fine colonna form */}

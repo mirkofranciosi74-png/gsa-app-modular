@@ -63,6 +63,10 @@ speseProprietariRouter.delete("/:id", h(async (req, res) => {
   res.status(204).end();
 }));
 
+speseProprietariRouter.get("/:id/audit", h(async (req, res) => {
+  res.json(await repo.getAuditLog(req.params.id));
+}));
+
 speseProprietariRouter.get("/:id/riparto", h(async (req, res) => {
   const rows = await query(
     `SELECT s.*, ts.descrizione AS tipo_spesa_nome

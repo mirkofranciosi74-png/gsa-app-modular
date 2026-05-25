@@ -28,16 +28,30 @@ grigliaRouter.get("/proprietari", h(async (q, r) => {
 }));
 
 grigliaRouter.get("/export-zip", h(async (q, r) => {
-  const { appartamentoId, periodoDA, periodoA } = q.query;
+  const { appartamentoId, periodoDA, periodoA, modo = "dettaglio" } = q.query;
   if (!appartamentoId) return r.status(400).json({ error: "appartamentoId obbligatorio" });
-  const dati        = await griglia.righeGriglia(appartamentoId, periodoDA || null, periodoA || null);
+  const [dati, datiProp] = await Promise.all([
+    griglia.righeGriglia(appartamentoId, periodoDA || null, periodoA || null),
+    griglia.grigliaPropretari(appartamentoId, periodoDA || null, periodoA || null),
+  ]);
   const documentiDB = await docRepo.listAll({
     appartamentoId,
     periodoDA: periodoDA || undefined,
     periodoA:  periodoA  || undefined,
   });
   const { streamGrigliaZip } = await import("./grigliaExport.js");
-  await streamGrigliaZip(dati, documentiDB, periodoDA, periodoA, r);
+  await streamGrigliaZip(dati, datiProp, documentiDB, periodoDA, periodoA, modo, r);
+}));
+
+grigliaRouter.get("/export-excel", h(async (q, r) => {
+  const { appartamentoId, periodoDA, periodoA, modo = "tutti" } = q.query;
+  if (!appartamentoId) return r.status(400).json({ error: "appartamentoId obbligatorio" });
+  const [dati, datiProp] = await Promise.all([
+    griglia.righeGriglia(appartamentoId, periodoDA || null, periodoA || null),
+    griglia.grigliaPropretari(appartamentoId, periodoDA || null, periodoA || null),
+  ]);
+  const { streamExcelOnly } = await import("./grigliaExport.js");
+  await streamExcelOnly(dati, datiProp, periodoDA, periodoA, modo, r);
 }));
 
 grigliaRouter.get("/export-excel", h(async (q, r) => {
@@ -75,15 +89,37 @@ export const reportRouter = Router();
 
 reportRouter.post("/genera", h(async (req, res) => {
   const { params } = req.body;
-  // Importa listAll da anagrafica senza dipendenza circolare
   const { listAll } = await import("../anagrafica/appartamentiRepo.js");
-  const appartamenti = await listAll();
+  const { userRepo } = await import("../auth/userRepo.js");
+  let appartamenti = await listAll();
+
+  // Viewer: limita ai soli appartamenti e inquilini consentiti
+  let allowedInquilini = null;
+  if (req.user?.ruolo === "viewer") {
+    const [appConsentiti, inqConsentiti] = await Promise.all([
+      userRepo.getAppartamenti(req.user.id),
+      userRepo.getInquilini(req.user.id),
+    ]);
+    if (appConsentiti.length > 0) {
+      const ids = new Set(appConsentiti.map(a => a.id));
+      appartamenti = appartamenti.filter(a => ids.has(a.id));
+    }
+    if (inqConsentiti.length > 0) {
+      allowedInquilini = new Set(inqConsentiti.map(c => c.id));
+    }
+  }
+
   const datiPerApp = [];
   for (const app of appartamenti) {
     const [g, gp] = await Promise.all([
       griglia.righeGriglia(app.id, params.periodoDA || null, params.periodoA || null),
       griglia.grigliaPropretari(app.id, params.periodoDA || null, params.periodoA || null),
     ]);
+    // Filtra i componenti per viewer con restrizioni inquilini
+    if (allowedInquilini) {
+      g.comps          = g.comps.filter(c => allowedInquilini.has(c.id));
+      g.righeMovimenti = g.righeMovimenti.filter(r => allowedInquilini.has(r.comp_id));
+    }
     datiPerApp.push({ app, griglia: g, grigliaProp: gp });
   }
   res.json(await report({ params, datiPerApp }));

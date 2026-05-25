@@ -2,8 +2,12 @@ import React, { useState, useEffect } from "react";
 import { appartamentiApi, movimentiApi, grigliaApi, documentiApi, tipiVersamentoApi } from "../api.js";
 import { Btn, Field, SectionHeader } from "../components/ui.jsx";
 import { euro, mesL, toISO } from "../utils/formatters.js";
+import { useAuth } from "../context/AuthContext.jsx";
 
 export function Griglia() {
+  const { user } = useAuth();
+  const isViewer = user?.ruolo === "viewer";
+
   const [apps,        setApps]   = useState([]);
   const [selApp,      setSelApp] = useState("");
   const [inquilini,   setInquilini] = useState([]);
@@ -20,16 +24,29 @@ export function Griglia() {
   const [selInquilino,  setSelInquilino] = useState("");
   const [tipiVers,      setTipiVers]    = useState([]);
 
-  useEffect(() => { appartamentiApi.list().then(setApps); }, []);
+  useEffect(() => {
+    appartamentiApi.list().then(all => {
+      // Viewer: filtra per appartamenti consentiti (se presenti)
+      if (isViewer && user?.allowedAppartamenti?.length > 0) {
+        setApps(all.filter(a => user.allowedAppartamenti.includes(a.id)));
+      } else {
+        setApps(all);
+      }
+    });
+  }, [isViewer, user?.allowedAppartamenti?.join(",")]);
   useEffect(() => { tipiVersamentoApi.list().then(setTipiVers); }, []);
 
   useEffect(() => {
     setSelInquilino("");
     if (!selApp) { setInquilini([]); return; }
     appartamentiApi.get(selApp).then(a => {
-      const comps = (a.componenti || [])
+      let comps = (a.componenti || [])
         .filter(c => c.validita_da || c.validita_a)
         .sort((a, b) => (a.nome + (a.cognome||"")).localeCompare(b.nome + (b.cognome||"")));
+      // Viewer: filtra per inquilini consentiti (se presenti)
+      if (isViewer && user?.allowedInquilini?.length > 0) {
+        comps = comps.filter(c => user.allowedInquilini.includes(c.id));
+      }
       setInquilini(comps);
     });
   }, [selApp]);
@@ -57,13 +74,14 @@ export function Griglia() {
     finally { setLoad(false); }
   }
 
-  async function esportaZip() {
+  async function esportaZip(modo = "dettaglio") {
     setExport(true);
     try {
       await grigliaApi.downloadZip({
         appartamentoId: selApp,
         periodoDA: pDA || undefined,
         periodoA:  pA  || undefined,
+        modo,
       });
     } catch (e) { alert("Errore export: " + e.message); }
     finally { setExport(false); }
@@ -120,7 +138,7 @@ export function Griglia() {
           <Btn variant="primary" onClick={calcola} disabled={!selApp || loading}>
             <i className="ti ti-calculator" />{loading ? "Calcolo…" : "Calcola"}
           </Btn>
-          {dati && (
+          {dati && !isViewer && (
             <div style={{ position: "relative" }}>
               <Btn variant="secondary"
                    onClick={() => setExportMenu(s => !s)}
@@ -145,12 +163,14 @@ export function Griglia() {
                       { label: "Excel inquilini (dettaglio)", icon: "ti-file-spreadsheet", modo: "excel-inquilini" },
                       { label: "Excel inquilini (sintetico)", icon: "ti-file-spreadsheet", modo: "excel-sintetico" },
                       { label: "Excel proprietari", icon: "ti-file-spreadsheet", modo: "excel-proprietari" },
-                      { label: "ZIP (Excel + PDF allegati)", icon: "ti-file-zip", modo: "zip" },
+                      { label: "ZIP sintetico (Excel sintetico + PDF)", icon: "ti-file-zip", modo: "zip-sintetico" },
+                      { label: "ZIP completo (tutti i fogli + PDF)", icon: "ti-file-zip", modo: "zip-tutti" },
                     ].map((opt, i, arr) => (
                       <button key={opt.modo}
                         onClick={() => {
                           setExportMenu(false);
-                          if (opt.modo === "zip") esportaZip();
+                          if (opt.modo === "zip-sintetico") esportaZip("sintetico");
+                          else if (opt.modo === "zip-tutti") esportaZip("tutti");
                           else esportaExcel(opt.modo.replace("excel-", ""));
                         }}
                         style={{
@@ -173,7 +193,7 @@ export function Griglia() {
               )}
             </div>
           )}
-          {dati && (
+          {dati && !isViewer && (
             <Btn variant={modoProp ? "primary" : "secondary"}
               onClick={() => setModoProp(s => !s)}
               title="Modalità proprietari: pagato/incassato per proprietario">
@@ -237,8 +257,11 @@ export function Griglia() {
       {dati && modoProp && datiProp && (() => {
         const { props: propList,
                 righeDocumenti: righeDocRaw, righeMovimenti: righeMovRaw,
+                righeSpeseProp: righeSpesePropRaw,
                 totaliDareTeorico, totaliAvereTeorico,
-                totaliPagato, totaliIncassato } = datiProp;
+                totaliDareTeoricoProp,
+                totaliPagato, totaliPagatoProp,
+                totaliIncassato } = datiProp;
 
         const righeDocumenti = righeDocRaw.filter(r =>
           Object.values(r.quote).some(v => v !== 0) || r.pagato_da_proprietario_id
@@ -247,6 +270,7 @@ export function Griglia() {
           Object.values(r.quoteReale).some(v => v !== 0) ||
           (r.quoteTeorica && Object.values(r.quoteTeorica).some(v => v !== 0))
         );
+        const righeSpeseProp = (righeSpesePropRaw || []);
 
         if (!propList || propList.length === 0) return (
           <div className="alert alert-warn">
@@ -272,13 +296,15 @@ export function Griglia() {
           </tr>
         );
 
-        // conguaglio per proprietario: pagato - incassato - dare_teorico + avere_teorico
+        // conguaglio per proprietario: (pagato docs + pagato speseProp) - incassato - (dare teorico docs + speseProp) + avere teorico
         const conguaglio = {};
         let totCong = 0;
         for (const p of propList) {
           const pid = p.proprietario_id;
-          const v = (totaliPagato[pid]||0) - (totaliIncassato[pid]||0)
-                  - (totaliDareTeorico[pid]||0) + (totaliAvereTeorico[pid]||0);
+          const v = (totaliPagato[pid]||0)           + (totaliPagatoProp[pid]||0)
+                  - (totaliIncassato[pid]||0)
+                  - (totaliDareTeorico[pid]||0)       - (totaliDareTeoricoProp[pid]||0)
+                  + (totaliAvereTeorico[pid]||0);
           conguaglio[pid] = v;
           totCong += v;
         }
@@ -376,23 +402,85 @@ export function Griglia() {
                     );
                   })
                 }
+                {/* ── SPESE PROPRIETARI ── */}
+                <SepP label="▼  SPESE PROPRIETARI — spese dirette dei proprietari" color="#fb923c" />
+                {righeSpeseProp.length === 0
+                  ? <tr><td colSpan={nCols} style={{ padding: 10, color: "var(--text2)", fontSize: 12 }}>Nessuna spesa proprietari nel periodo.</td></tr>
+                  : righeSpeseProp.map((r, i) => {
+                    const pagante = r.pagato_da_proprietario_id
+                      ? propList.find(x => x.proprietario_id === r.pagato_da_proprietario_id)
+                      : null;
+                    return (
+                      <React.Fragment key={"sp"+i}>
+                        <tr style={{ borderBottom: pagante ? "none" : "1px solid var(--bg3)" }}>
+                          <td style={{ padding: "7px 10px" }}>
+                            <div style={{ flex: 1 }}>
+                              <p style={{ fontWeight: 600, margin: 0, fontSize: 13 }}>{r.tipo_descrizione}</p>
+                              {r.descrizione && r.descrizione !== r.tipo_descrizione && (
+                                <p style={{ fontSize: 10, color: "var(--text2)", margin: "2px 0 0", fontStyle: "italic" }}>{r.descrizione}</p>
+                              )}
+                              {r.fornitore && <p style={{ fontSize: 10, color: "var(--text2)", margin: "2px 0 0" }}>{r.fornitore}</p>}
+                              <p style={{ fontSize: 10, color: "var(--text2)", margin: "2px 0 0", fontStyle: "italic" }}>Quota teorica</p>
+                            </div>
+                          </td>
+                          <td style={{ ...tdN("#fb923c", true, "rgba(251,146,60,0.07)") }}>{euro(r.importo)}</td>
+                          {propList.map(p => {
+                            const q = r.quote[p.proprietario_id] || 0;
+                            return (
+                              <td key={p.proprietario_id} style={{ ...tdN(q !== 0 ? "var(--text)" : "var(--text2)") }}>
+                                {q !== 0 ? euro(q) : <span style={{ opacity: 0.25 }}>—</span>}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                        <tr style={{ borderBottom: "1px solid var(--bg3)", background: "rgba(251,146,60,0.04)" }}>
+                          <td style={{ padding: "4px 10px 6px 20px", fontSize: 11, color: "#fb923c" }}>
+                            <i className="ti ti-credit-card" style={{ marginRight: 4 }} />
+                            {pagante ? `Pagato da: ${pagante.proprietario_nome}` : "Pagante non registrato"}
+                          </td>
+                          <td style={{ ...tdN("#fb923c", false), fontSize: 11 }}>{euro(r.importo)}</td>
+                          {propList.map(p => {
+                            const isPagante = p.proprietario_id === r.pagato_da_proprietario_id;
+                            return (
+                              <td key={p.proprietario_id} style={{ ...tdN(isPagante ? "#fb923c" : "var(--text2)", isPagante), fontSize: 11 }}>
+                                {isPagante ? euro(r.importo) : <span style={{ opacity: 0.25 }}>—</span>}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      </React.Fragment>
+                    );
+                  })
+                }
+                <tr style={{ background: "rgba(251,146,60,0.08)", borderTop: "1px solid var(--border)" }}>
+                  <td colSpan={2} style={{ padding: "7px 10px", fontSize: 12, fontWeight: 600 }}>Totale dare teorico (spese prop.)</td>
+                  {propList.map(p => (
+                    <td key={p.proprietario_id} style={{ ...tdN("#fb923c", true) }}>
+                      {euro(totaliDareTeoricoProp[p.proprietario_id] || 0)}
+                    </td>
+                  ))}
+                </tr>
+
                 <tr style={{ background: "rgba(239,68,68,0.08)", borderTop: "2px solid var(--border)" }}>
-                  <td colSpan={2} style={{ padding: "9px 10px", fontWeight: 700, fontSize: 13 }}>Totale dare teorico</td>
+                  <td colSpan={2} style={{ padding: "9px 10px", fontWeight: 700, fontSize: 13 }}>Totale dare teorico (tutto)</td>
                   {propList.map(p => (
                     <td key={p.proprietario_id} style={{ ...tdN("#f87171", true) }}>
-                      {euro(totaliDareTeorico[p.proprietario_id] || 0)}
+                      {euro((totaliDareTeorico[p.proprietario_id] || 0) + (totaliDareTeoricoProp[p.proprietario_id] || 0))}
                     </td>
                   ))}
                 </tr>
                 <tr style={{ background: "rgba(165,180,252,0.06)", borderTop: "1px solid var(--border)" }}>
                   <td colSpan={2} style={{ padding: "7px 10px", fontSize: 12, color: "var(--text2)", fontStyle: "italic" }}>
-                    ↳ Pagato effettivamente
+                    ↳ Pagato effettivamente (tutto)
                   </td>
-                  {propList.map(p => (
-                    <td key={p.proprietario_id} style={{ ...tdN("#a5b4fc", false) }}>
-                      {totaliPagato[p.proprietario_id] ? euro(totaliPagato[p.proprietario_id]) : <span style={{ opacity: 0.3 }}>—</span>}
-                    </td>
-                  ))}
+                  {propList.map(p => {
+                    const tot = (totaliPagato[p.proprietario_id] || 0) + (totaliPagatoProp[p.proprietario_id] || 0);
+                    return (
+                      <td key={p.proprietario_id} style={{ ...tdN("#a5b4fc", false) }}>
+                        {tot ? euro(tot) : <span style={{ opacity: 0.3 }}>—</span>}
+                      </td>
+                    );
+                  })}
                 </tr>
 
                 {/* ── VERSAMENTI ── */}
@@ -472,9 +560,11 @@ export function Griglia() {
                     return (
                       <td key={p.proprietario_id}
                         title={[
-                          `Pagato: ${euro(totaliPagato[p.proprietario_id]||0)}`,
+                          `Pagato (docs inq.): ${euro(totaliPagato[p.proprietario_id]||0)}`,
+                          `Pagato (spese prop.): ${euro(totaliPagatoProp[p.proprietario_id]||0)}`,
                           `Incassato: ${euro(totaliIncassato[p.proprietario_id]||0)}`,
-                          `Dare teorico: ${euro(totaliDareTeorico[p.proprietario_id]||0)}`,
+                          `Dare teorico (docs): ${euro(totaliDareTeorico[p.proprietario_id]||0)}`,
+                          `Dare teorico (spese prop.): ${euro(totaliDareTeoricoProp[p.proprietario_id]||0)}`,
                           `Avere teorico: ${euro(totaliAvereTeorico[p.proprietario_id]||0)}`,
                           `─────`,
                           `Conguaglio: ${v>=0?"+":""}${euro(v)}`,
@@ -493,15 +583,20 @@ export function Griglia() {
       })()}
 
       {dati && !modoProp && (() => {
-        const { comps,
+        const { comps: compsAll,
                 righeDocumenti: righeDocRaw, righeMovimenti: righeMovRaw,
                 totaliDovuto, totaliVersato } = dati;
 
+        // Viewer: mostra solo le colonne degli inquilini autorizzati
+        const comps = (isViewer && user?.allowedInquilini?.length > 0)
+          ? compsAll.filter(c => user.allowedInquilini.includes(c.id))
+          : compsAll;
+
         const righeDocumenti = righeDocRaw.filter(r =>
-          Object.values(r.quote).some(v => v !== 0)
+          comps.some(c => (r.quote[c.id] || 0) !== 0)
         );
         const righeMovimenti = righeMovRaw.filter(r =>
-          Object.values(r.quote).some(v => v !== 0)
+          comps.some(c => (r.quote[c.id] || 0) !== 0)
         );
 
         if (!comps || comps.length === 0)
@@ -513,7 +608,6 @@ export function Griglia() {
           );
 
         const mesiGriglia = (() => {
-          if (!pDA && !pA) return [];
           const da = pDA || "2000-01";
           const a  = pA  || new Date().toISOString().slice(0,7);
           const result = [];
@@ -570,6 +664,25 @@ export function Griglia() {
         const BADGE_HEX = { blue:"#4ade80", purple:"#c084fc", red:"#f87171", green:"#86efac", orange:"#fb923c", gray:"#94a3b8" };
         const TV_COLOR = nome => { const t = tipiVers.find(x => x.nome === nome); return BADGE_HEX[t?.colore] || "#94a3b8"; };
         const TV_LABEL = nome => nome || "affitto";
+
+        const righeSinteticheDocumenti = (() => {
+          const gruppi = new Map();
+          for (const r of righeDocumenti) {
+            const tipo = r.tipo_descrizione || r.nome_file || "Spesa";
+            if (!gruppi.has(tipo)) {
+              const quote = {};
+              for (const c of comps) quote[c.id] = 0;
+              gruppi.set(tipo, { tipo_descrizione: tipo, importo: 0, quote, periodo_da: r.periodo_da, periodo_a: r.periodo_a || r.periodo_da });
+            }
+            const g = gruppi.get(tipo);
+            g.importo += r.importo || 0;
+            if (r.periodo_da && (!g.periodo_da || r.periodo_da < g.periodo_da)) g.periodo_da = r.periodo_da;
+            const fa = r.periodo_a || r.periodo_da;
+            if (fa && (!g.periodo_a || fa > g.periodo_a)) g.periodo_a = fa;
+            for (const c of comps) g.quote[c.id] = (g.quote[c.id] || 0) + (r.quote[c.id] || 0);
+          }
+          return [...gruppi.values()].sort((a, b) => a.tipo_descrizione.localeCompare(b.tipo_descrizione));
+        })();
 
         const righeSintetiche = (() => {
           const gruppi = new Map();
@@ -657,7 +770,30 @@ export function Griglia() {
                         Nessuna spesa nel periodo.
                       </td>
                     </tr>
-                  ) : righeDocumenti.map((r, i) => (
+                  ) : sintetico ? righeSinteticheDocumenti.map((r, i) => (
+                    <tr key={"ds" + i} style={{ borderBottom: "1px solid var(--bg3)" }}>
+                      <td style={{ padding: "7px 10px" }}>
+                        <p style={{ fontWeight: 600, margin: 0, fontSize: 13 }}>{r.tipo_descrizione}</p>
+                      </td>
+                      <td style={{ padding: "7px 10px", textAlign: "center", fontSize: 11, color: "var(--text2)" }}>
+                        {ym2L(r.periodo_da)}
+                        {r.periodo_a && r.periodo_a !== r.periodo_da ? ` → ${ym2L(r.periodo_a)}` : ""}
+                      </td>
+                      <td style={{ ...tdNum("#a5b4fc", true, "rgba(99,102,241,0.07)") }}>
+                        {euro(comps.reduce((s, c) => s + (r.quote[c.id] || 0), 0))}
+                      </td>
+                      {compsVisibili.map(c => {
+                        const q = r.quote[c.id] || 0;
+                        return (
+                          <td key={c.id}
+                            title={q !== 0 ? `${c.tipo_descrizione} — ${c.label}: ${euro(q)}` : ""}
+                            style={{ ...tdNum(q !== 0 ? "var(--text)" : "var(--text2)", false), cursor: q !== 0 ? "help" : "default" }}>
+                            {q !== 0 ? euro(q) : <span style={{ opacity: 0.25 }}>—</span>}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  )) : righeDocumenti.map((r, i) => (
                     <tr key={"d" + i} style={{ borderBottom: "1px solid var(--bg3)" }}>
                       <td style={{ padding: "7px 10px" }}>
                         <div style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
@@ -702,14 +838,14 @@ export function Griglia() {
                       </td>
                       <td
                         title={[
-                          `Totale a carico inquilini: ${euro(Object.values(r.quote).reduce((s,v)=>s+v,0))}`,
+                          `Quota a carico: ${euro(comps.reduce((s,c)=>s+(r.quote[c.id]||0),0))}`,
                           `─────`,
                           `Fattura totale: ${euro(r.importo_fattura)} su ${r.mesi_fattura} mesi`,
                           `Nel filtro (${r.mesi_filtro} mesi): ${euro(r.importo)}`,
                         ].join('\n')}
                         style={{ ...tdNum("#a5b4fc", true, "rgba(99,102,241,0.07)"), cursor: "help" }}
                       >
-                        {euro(Object.values(r.quote).reduce((s, v) => s + v, 0))}
+                        {euro(comps.reduce((s, c) => s + (r.quote[c.id] || 0), 0))}
                       </td>
                       {compsVisibili.map(c => {
                         const q = r.quote[c.id] || 0;

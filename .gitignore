@@ -5,6 +5,7 @@ frontend/dist/
 
 # Environment
 .env
+.env.local
 frontend/.env
 
 # Storage (PDF, allegati, archivio) — mai committare file utenti

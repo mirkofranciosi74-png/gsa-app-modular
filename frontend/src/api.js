@@ -22,12 +22,25 @@
 // In produzione: impostare VITE_API_BASE_URL nel .env del build se necessario
 const BASE = (import.meta.env.VITE_API_BASE_URL ?? "") + "/api";
 
+function authHeader() {
+  const token = localStorage.getItem("gsa_token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function http(method, path, body, isForm = false) {
+  const contentType = isForm ? {} : body ? { "Content-Type": "application/json" } : {};
   const r = await fetch(`${BASE}${path}`, {
     method,
-    headers: isForm ? {} : body ? { "Content-Type": "application/json" } : {},
+    headers: { ...authHeader(), ...contentType },
     body: body ? (isForm ? body : JSON.stringify(body)) : undefined,
   });
+
+  // Token scaduto → forza logout
+  if (r.status === 401) {
+    localStorage.removeItem("gsa_token");
+    window.location.reload();
+    throw new Error("Sessione scaduta");
+  }
 
   if (r.status === 204) return null;
   const text = await r.text();
@@ -208,10 +221,10 @@ export const grigliaApi = {
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
   },
 
-  downloadZip: async ({ appartamentoId, periodoDA, periodoA }) => {
+  downloadZip: async ({ appartamentoId, periodoDA, periodoA, modo = "dettaglio" }) => {
     const qs = new URLSearchParams(
       Object.fromEntries(
-        Object.entries({ appartamentoId, periodoDA, periodoA })
+        Object.entries({ appartamentoId, periodoDA, periodoA, modo })
           .filter(([, v]) => v)
       )
     ).toString();
@@ -221,7 +234,7 @@ export const grigliaApi = {
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement("a");
     a.href     = url;
-    a.download = `griglia_${periodoDA || "tutto"}_${periodoA || "oggi"}.zip`;
+    a.download = `griglia_${modo}_${periodoDA || "tutto"}_${periodoA || "oggi"}.zip`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -266,6 +279,7 @@ export const speseProprietariApi = {
   updateStato: (id, s) => http("PATCH", `/spese-proprietari/${id}/stato`, { stato: s }),
   delete:      id      => del(`/spese-proprietari/${id}`),
   riparto:     id      => get(`/spese-proprietari/${id}/riparto`),
+  audit:       id      => get(`/spese-proprietari/${id}/audit`),
 
   checkHash: file => {
     const fd = new FormData();
@@ -443,4 +457,63 @@ export const reportApi = {
     // Libera la memoria dopo il click
     setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
   },
+};
+
+const authFetch = (path, opts = {}) => {
+  const { headers: extraHeaders = {}, ...restOpts } = opts;
+  return fetch(`${BASE}/auth${path}`, {
+    headers: { ...authHeader(), ...extraHeaders },
+    ...restOpts,
+  });
+};
+
+export const authApi = {
+  loginGoogle: () => { window.location.href = `${BASE}/auth/google`; },
+  loginApple:  () => { window.location.href = `${BASE}/auth/apple`; },
+  loginLocal: async (email, password) => {
+    const r = await fetch(`${BASE}/auth/login`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ email, password }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data?.error || `HTTP ${r.status}`);
+    return data;
+  },
+  logout:      () => authFetch("/logout", { method: "POST" }),
+
+  listUsers:   () => authFetch("/users").then(r => r.json()),
+  createUser:  (data) => authFetch("/users", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  }).then(r => r.json()),
+  updateRuolo: (id, ruolo) => authFetch(`/users/${id}/ruolo`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body:    JSON.stringify({ ruolo }),
+  }).then(r => r.json()),
+  updateAttivo: (id, attivo) => authFetch(`/users/${id}/attivo`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body:    JSON.stringify({ attivo }),
+  }).then(r => r.json()),
+  deleteUser: id => authFetch(`/users/${id}`, { method: "DELETE" }),
+  getAppartamenti: id      => authFetch(`/users/${id}/appartamenti`).then(r => r.json()),
+  setAppartamenti: (id, ids) => authFetch(`/users/${id}/appartamenti`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body:    JSON.stringify({ ids }),
+  }).then(r => r.json()),
+  getInquilini: id      => authFetch(`/users/${id}/inquilini`).then(r => r.json()),
+  setInquilini: (id, ids) => authFetch(`/users/${id}/inquilini`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body:    JSON.stringify({ ids }),
+  }).then(r => r.json()),
+  setPassword: (id, password) => authFetch(`/users/${id}/password`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body:    JSON.stringify({ password }),
+  }).then(r => r.json()),
 };

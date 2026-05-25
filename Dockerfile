@@ -11,6 +11,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 
 COPY src/ ./src/
+COPY ita.traineddata ./
 COPY docker-entrypoint.sh ./
 RUN chmod +x docker-entrypoint.sh
 

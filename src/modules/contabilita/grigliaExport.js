@@ -51,6 +51,26 @@ function _buildRigheAffitto(comps, periodoDA, periodoA) {
     .filter(r => Object.values(r.quote).some(v => v > 0));
 }
 
+/** Spese raggruppate per tipo (vista sintetica) */
+function _righeSinteticheDocumenti(righeDocumenti, comps) {
+  const gruppi = new Map();
+  for (const r of righeDocumenti) {
+    const tipo = r.tipo_descrizione || r.nome_file || "Spesa";
+    if (!gruppi.has(tipo)) {
+      const quote = {};
+      for (const c of comps) quote[c.id] = 0;
+      gruppi.set(tipo, { label: tipo, periodo_da: r.periodo_da, periodo_a: r.periodo_a || r.periodo_da, importo: 0, quote });
+    }
+    const g = gruppi.get(tipo);
+    g.importo += r.importo || 0;
+    if (r.periodo_da && (!g.periodo_da || r.periodo_da < g.periodo_da)) g.periodo_da = r.periodo_da;
+    const fa = r.periodo_a || r.periodo_da;
+    if (fa && (!g.periodo_a || fa > g.periodo_a)) g.periodo_a = fa;
+    for (const c of comps) g.quote[c.id] = (g.quote[c.id] || 0) + (r.quote[c.id] || 0);
+  }
+  return [...gruppi.values()].sort((a, b) => a.label.localeCompare(b.label));
+}
+
 /** Versamenti raggruppati per tipo+mese (vista sintetica) */
 function _righeSintetiche(righeMovimenti, comps) {
   const gruppi = new Map();
@@ -208,13 +228,16 @@ function _buildSheetInquilini(wb, dati, periodoDA, periodoA, sintetico = false) 
   const sumQ = r => comps.reduce((s, c) => s + (r.quote[c.id] || 0), 0);
 
   // ── SPESE ──────────────────────────────────────────────────────────────────
+  const righeSpese = sintetico
+    ? _righeSinteticheDocumenti(righeDocumenti, comps)
+    : righeDocumenti;
   addSep("▼  SPESE — quota dovuta per componente", C.speseBg);
-  if (righeDocumenti.length === 0) {
+  if (righeSpese.length === 0) {
     ws.mergeCells(row, 1, row, nCols);
     ws.getCell(row, 1).value = "Nessuna spesa nel periodo";
     ws.getCell(row, 1).font = fnt({ color: { argb: "888888" } }); row++;
   } else {
-    for (const r of righeDocumenti)
+    for (const r of righeSpese)
       addDataRow(r.label, r.periodo_da, r.periodo_a, sumQ(r), r.quote, C.speseLight);
   }
   addTotRow("Totale dovuto (spese)", totaliDovuto, "C0392B", C.totBg);
@@ -518,12 +541,19 @@ function _buildSheetProprietari(wb, datiProp, periodoDA, periodoA) {
 // ─────────────────────────────────────────────────────────────────────────────
 // EXPORT ZIP (Excel inquilini + PDF)
 // ─────────────────────────────────────────────────────────────────────────────
-export async function streamGrigliaZip(dati, documentiDB, periodoDA, periodoA, res) {
-  const nomeFile = `griglia_${periodoDA || "tutto"}_${periodoA || "oggi"}.zip`;
+// modo: "dettaglio" | "sintetico" | "tutti"
+export async function streamGrigliaZip(dati, datiProp, documentiDB, periodoDA, periodoA, modo = "dettaglio", res) {
+  const nomeFile = `griglia_${modo}_${periodoDA || "tutto"}_${periodoA || "oggi"}.zip`;
 
   const wb = new ExcelJS.Workbook();
   wb.creator = "GSA"; wb.created = new Date();
-  _buildSheetInquilini(wb, dati, periodoDA, periodoA, false);
+
+  if (modo === "dettaglio" || modo === "tutti")
+    _buildSheetInquilini(wb, dati, periodoDA, periodoA, false);
+  if (modo === "sintetico" || modo === "tutti")
+    _buildSheetInquilini(wb, dati, periodoDA, periodoA, true);
+  if (modo === "tutti" && datiProp)
+    _buildSheetProprietari(wb, datiProp, periodoDA, periodoA);
 
   const xlsxBuffer = await wb.xlsx.writeBuffer();
 

@@ -1,0 +1,11 @@
+gsa.test {
+	# Usa la CA locale di Caddy invece di Let's Encrypt
+	tls internal
+
+	# API e autenticazione → backend Express (porta 3001)
+	reverse_proxy /api/* localhost:3001
+	reverse_proxy /auth/* localhost:3001
+
+	# Frontend Vite (porta 5173) — hot reload WebSocket incluso
+	reverse_proxy * localhost:5173
+}
