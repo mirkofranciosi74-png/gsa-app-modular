@@ -2,7 +2,7 @@
 
 Applicazione web fullstack per la gestione completa di spese condominiali, affitti, versamenti, conguagli e documentazione relativa a più appartamenti.
 
-**Stack:** Node.js 20 · Express · PostgreSQL 16 · React 18 · Vite 5 · OCR integrato · Report PDF · Autenticazione Google OAuth + login locale email/password
+**Stack:** Node.js 20 · Express · PostgreSQL 18 · React 18 · Vite 5 · OCR integrato · Report PDF · Autenticazione Google OAuth + login locale email/password
 
 ## Documentazione del progetto
 
@@ -464,12 +464,12 @@ sudo apt install -y nodejs
 node -v   # v20.x.x o superiore
 ```
 
-### PostgreSQL 16+
+### PostgreSQL 18+
 
 ```bash
 # macOS
-brew install postgresql@16
-brew services start postgresql@16
+brew install postgresql@18
+brew services start postgresql@18
 
 # Ubuntu/Debian
 sudo apt install -y postgresql postgresql-contrib
@@ -650,44 +650,99 @@ Gli utenti possono accedere dalla pagina di login cliccando **"Accedi con email 
 
 ### 8.2 Google OAuth
 
-#### Creare le credenziali
+#### Passo 1 — Creare un progetto Google Cloud
 
-1. Vai su [Google Cloud Console](https://console.cloud.google.com/) → seleziona o crea un progetto
-2. Menu → **APIs & Services** → **Credentials**
-3. Clic su **+ Create Credentials** → **OAuth client ID**
-4. Application type: **Web application**
-5. **Authorized redirect URIs** — aggiungi:
-   - Sviluppo locale: `http://localhost:3001/auth/google/callback`
-   - Produzione: `https://gsa.mio-dominio.it/auth/google/callback`
-6. Clic **Create** → copia **Client ID** e **Client Secret**
+1. Vai su [Google Cloud Console](https://console.cloud.google.com/)
+2. In alto a sinistra clicca sul selettore di progetto → **Nuovo progetto**
+3. Dai un nome (es. `GSA`) e clicca **Crea**
+4. Assicurati che il nuovo progetto sia selezionato nel selettore in alto
 
-#### Configurazione
+#### Passo 2 — Abilitare l'API Google+ / Identity
+
+1. Dal menu laterale vai su **APIs & Services** → **Library**
+2. Cerca `Google Identity` oppure `OAuth`
+3. Clicca su **Google Identity Toolkit API** → **Abilita**
+   > In alternativa puoi saltare questo passo: le credenziali OAuth funzionano anche senza abilitazione esplicita per gli scope `openid email profile`
+
+#### Passo 3 — Configurare la schermata di consenso OAuth
+
+1. Menu → **APIs & Services** → **OAuth consent screen**
+2. Seleziona **External** → **Crea**
+3. Compila i campi obbligatori:
+   - **App name**: `GSA`
+   - **User support email**: la tua email
+   - **Developer contact information**: la tua email
+4. Clicca **Save and Continue**
+5. Nella schermata **Scopes**: clicca **Save and Continue** senza aggiungere nulla (gli scope base vengono richiesti automaticamente)
+6. Nella schermata **Test users**: aggiungi le email degli account Google che userai in sviluppo, poi **Save and Continue**
+7. Clicca **Back to Dashboard**
+
+> In produzione, se vuoi che qualsiasi account Google possa accedere, dovrai pubblicare l'app cliccando **Publish App** nella schermata di consenso. Finché è in modalità *Testing*, solo gli indirizzi nella lista test users possono fare login.
+
+#### Passo 4 — Creare le credenziali OAuth
+
+1. Menu → **APIs & Services** → **Credentials**
+2. Clicca **+ Create Credentials** → **OAuth client ID**
+3. **Application type**: `Web application`
+4. **Name**: `GSA Web` (o qualsiasi nome)
+5. Sezione **Authorized JavaScript origins** — aggiungi:
+   ```
+   http://localhost:3001
+   http://localhost:5173
+   ```
+   In produzione aggiungi anche:
+   ```
+   https://gsa.mio-dominio.it
+   ```
+6. Sezione **Authorized redirect URIs** — aggiungi:
+   ```
+   http://localhost:3001/auth/google/callback
+   ```
+   In produzione aggiungi anche:
+   ```
+   https://gsa.mio-dominio.it/auth/google/callback
+   ```
+7. Clicca **Create**
+8. Nella finestra che compare copia:
+   - **Client ID** (formato: `xxxxxxxxxx.apps.googleusercontent.com`)
+   - **Client Secret** (formato: `GOCSPX-xxxxxxxxxx`)
+
+#### Passo 5 — Configurare il `.env`
 
 ```bash
-GOOGLE_CLIENT_ID=732897461114-xxxx.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=GOCSPX-xxxx
-ADMIN_EMAIL=tua@email.com
+GOOGLE_CLIENT_ID=xxxxxxxxxx.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=GOCSPX-xxxxxxxxxx
+ADMIN_EMAIL=tua@email.com          # questo account diventa admin al primo login
+BACKEND_URL=http://localhost:3001  # deve corrispondere al redirect URI registrato
+FRONTEND_URL=http://localhost:5173 # dove il browser torna dopo il login
 ```
 
-> **`BACKEND_URL`** deve corrispondere esattamente al dominio del redirect URI registrato in Google Console (senza slash finale). Il callback è sempre `${BACKEND_URL}/auth/google/callback`.
+> **Regola fondamentale:** `${BACKEND_URL}/auth/google/callback` deve essere identico all'URI registrato in Google Console — maiuscole, slash e porta compresi. Qualsiasi differenza produce l'errore `redirect_uri_mismatch`.
 
-#### Primo accesso
+#### Passo 6 — Riavviare il backend e testare
 
-1. Avvia l'applicazione
-2. Clicca "Accedi con Google" nella pagina di login
-3. Esegui l'accesso con l'account corrispondente a `ADMIN_EMAIL`
+```bash
+# Riavvia il backend per caricare le nuove variabili
+npm run dev
+```
+
+1. Apri l'applicazione nel browser
+2. Clicca **"Accedi con Google"**
+3. Scegli l'account corrispondente a `ADMIN_EMAIL`
 4. L'account riceve automaticamente il ruolo `admin`
-5. Tutti gli account successivi ricevono ruolo `editor` — l'admin può modificarli
+5. Gli account successivi ricevono ruolo `editor` — l'admin può modificarli dalla tab Gestione Utenti
 
-#### Flusso OAuth
+#### Flusso OAuth completo
 
 ```
-Browser → /api/auth/google
-       → Google (autorizzazione)
-       → /auth/google/callback
-       → backend verifica → crea/aggiorna utente
-       → redirect a FRONTEND_URL/?token=<jwt>
-       → frontend memorizza il token e autentica l'utente
+Browser → GET /api/auth/google
+        → redirect a accounts.google.com (autorizzazione utente)
+        → Google → GET /auth/google/callback?code=...
+        → backend scambia code → access_token
+        → backend legge profilo Google (email, nome, avatar)
+        → crea o aggiorna utente nel DB
+        → emette JWT → redirect a FRONTEND_URL/?token=<jwt>
+        → frontend salva token in localStorage → utente autenticato
 ```
 
 ### 8.3 Token JWT
@@ -840,7 +895,7 @@ cat .env | grep JWT_SECRET
 ### `Error: connect ECONNREFUSED 127.0.0.1:5432`
 PostgreSQL non è in esecuzione.
 ```bash
-brew services start postgresql@16    # macOS
+brew services start postgresql@18    # macOS
 sudo systemctl start postgresql      # Ubuntu
 ```
 
