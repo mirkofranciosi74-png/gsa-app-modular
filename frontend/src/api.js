@@ -208,7 +208,7 @@ export const grigliaApi = {
           .filter(([, v]) => v)
       )
     ).toString();
-    const res  = await fetch(`${BASE}/griglia/export-excel?${qs}`);
+    const res  = await fetch(`${BASE}/griglia/export-excel?${qs}`, { headers: authHeader() });
     if (!res.ok) throw new Error(`Export fallito: HTTP ${res.status}`);
     const blob = await res.blob();
     const url  = URL.createObjectURL(blob);
@@ -228,7 +228,7 @@ export const grigliaApi = {
           .filter(([, v]) => v)
       )
     ).toString();
-    const res  = await fetch(`${BASE}/griglia/export-zip?${qs}`);
+    const res  = await fetch(`${BASE}/griglia/export-zip?${qs}`, { headers: authHeader() });
     if (!res.ok) throw new Error(`Export fallito: HTTP ${res.status}`);
     const blob = await res.blob();
     const url  = URL.createObjectURL(blob);
@@ -386,7 +386,7 @@ export const adminApi = {
   verificaCoerenza: () => get("/admin/verifica-coerenza"),
   backfillHash:     () => post("/admin/backfill-hash", {}),
   backup: async (tipo = "tutto") => {
-    const res = await fetch(`${BASE}/admin/backup?tipo=${tipo}`);
+    const res = await fetch(`${BASE}/admin/backup?tipo=${tipo}`, { headers: authHeader() });
     if (!res.ok) throw new Error(`Backup fallito: HTTP ${res.status}`);
     const blob = await res.blob();
     const date = new Date().toISOString().slice(0, 10);
@@ -408,7 +408,7 @@ export const adminApi = {
   logsToggle:   (enabled) => post("/admin/logs/toggle", { enabled }),
   logsClear:    ()        => del("/admin/logs"),
   logsDownload: async () => {
-    const res = await fetch(`${BASE}/admin/logs/download`);
+    const res = await fetch(`${BASE}/admin/logs/download`, { headers: authHeader() });
     if (!res.ok) throw new Error(`Download log fallito: HTTP ${res.status}`);
     const blob = await res.blob();
     const date = new Date().toISOString().slice(0, 10);
