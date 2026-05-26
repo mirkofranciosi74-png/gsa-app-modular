@@ -41,7 +41,6 @@ MISSING=()
 
 # Node.js
 if command -v node >/dev/null 2>&1; then
-  NODE_VER=$(node -e "process.exit(parseInt(process.version.slice(1)) < 18 ? 1 : 0)" 2>/dev/null && node -v || echo "troppo vecchio")
   if node -e "process.exit(parseInt(process.version.slice(1)) < 18 ? 1 : 0)" 2>/dev/null; then
     ok "Node.js $(node -v)"
   else
@@ -120,7 +119,7 @@ else
   warn "Impossibile connettersi a PostgreSQL come superuser."
   warn "Assicurati che il servizio sia avviato, poi rilancia questo script."
   echo ""
-  echo "  macOS: brew services start postgresql@16"
+  echo "  macOS: brew services start postgresql@18"
   echo "  Linux: sudo systemctl start postgresql"
   exit 1
 fi
@@ -174,7 +173,7 @@ title "5. Esecuzione migration database"
 # Carica variabili da .env per la connessione
 set -a
 # shellcheck disable=SC1091
-source <(grep -v '^\s*#' "$ROOT/.env" | grep -v '^\s*$' | sed 's/ *= */=/') 2>/dev/null || true
+source <(grep -v '^\s*#' "$ROOT/.env" | grep -v '^\s*$') 2>/dev/null || true
 set +a
 
 info "Esecuzione migration..."
