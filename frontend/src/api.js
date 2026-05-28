@@ -244,10 +244,11 @@ export const grigliaApi = {
 
 // ── TIPI SPESA ────────────────────────────────────────────────────────────────
 export const tipiSpesaApi = {
-  list:   ()       => get("/tipi-spesa"),
-  create: d        => post("/tipi-spesa", d),
-  update: (id, d)  => put(`/tipi-spesa/${id}`, d),
-  delete: id       => del(`/tipi-spesa/${id}`),
+  list:        ()       => get("/tipi-spesa"),
+  create:      d        => post("/tipi-spesa", d),
+  update:      (id, d)  => put(`/tipi-spesa/${id}`, d),
+  dipendenze:  id       => get(`/tipi-spesa/${id}/dipendenze`),
+  delete:      id       => del(`/tipi-spesa/${id}`),
 };
 
 // ── TIPI VERSAMENTO ───────────────────────────────────────────────────────────

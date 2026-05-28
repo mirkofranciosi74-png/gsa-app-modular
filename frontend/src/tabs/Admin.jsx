@@ -702,7 +702,7 @@ export function Admin() {
       <div>
         <h2 style={{ fontSize: 20, fontWeight: 700, margin: "0 0 4px" }}>Amministrazione</h2>
         <p style={{ color: "var(--text2)", fontSize: 13, margin: 0 }}>
-          Backup, ripristino, gestione del sistema e tipologie documento.
+          Backup, ripristino, gestione del sistema e tipologie di spesa.
         </p>
       </div>
 
@@ -715,11 +715,11 @@ export function Admin() {
         <VerificaCoerenzaSection />
       </div>
 
-      {/* ── Tipi Documento ──────────────────────────────────────────────────── */}
+      {/* ── Spese ───────────────────────────────────────────────────────────── */}
       <div>
         <h3 style={{ fontSize: 15, fontWeight: 700, margin: "0 0 16px", color: "var(--text)" }}>
           <i className="ti ti-tag" style={{ marginRight: 8, color: "var(--accent)" }} />
-          Tipi Documento
+          Spese
         </h3>
         <Tipologie />
       </div>

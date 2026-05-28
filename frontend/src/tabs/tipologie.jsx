@@ -11,10 +11,18 @@ const COLORI_TV = [
   { value: "gray",   label: "Grigio"   },
 ];
 
+const CATEGORIA_COLORI = {
+  Utenza:     "blue",
+  Condominio: "purple",
+  Tassa:      "orange",
+  Altro:      "gray",
+};
+
 // ── Tipi Spesa ────────────────────────────────────────────────────────────────
 function TipiSpesa() {
   const [list,  setList]  = useState([]);
   const [modal, setModal] = useState(null);
+  const [conf,  setConf]  = useState(null); // { id, descrizione, deleting, dep }
 
   const load = useCallback(() => tipiSpesaApi.list().then(setList), []);
   useEffect(() => { load(); }, [load]);
@@ -25,6 +33,30 @@ function TipiSpesa() {
       setModal(null); load();
     } catch (e) { alert("Errore: " + e.message); }
   }
+
+  async function askDelete(t) {
+    setConf({ id: t.id, descrizione: t.descrizione, deleting: false, dep: null });
+    try {
+      const dep = await tipiSpesaApi.dipendenze(t.id);
+      setConf(c => c ? { ...c, dep } : null);
+    } catch {
+      setConf(c => c ? { ...c, dep: { documenti: 0, spese_proprietari: 0 } } : null);
+    }
+  }
+
+  async function doDelete() {
+    if (!conf) return;
+    setConf(c => ({ ...c, deleting: true }));
+    try {
+      await tipiSpesaApi.delete(conf.id);
+      setConf(null); load();
+    } catch (e) {
+      alert("Errore: " + e.message);
+      setConf(c => c ? { ...c, deleting: false } : null);
+    }
+  }
+
+  const depTot = conf?.dep ? conf.dep.documenti + conf.dep.spese_proprietari : null;
 
   return (
     <div style={{ marginBottom: 40 }}>
@@ -41,7 +73,7 @@ function TipiSpesa() {
       <table>
         <thead>
           <tr>
-            <th>Tipologia</th><th>Categoria</th><th>Riparto</th><th>Stato</th>
+            <th>Tipologia</th><th>Categoria</th><th>Stato</th>
             <th style={{ textAlign: "right" }}>Azioni</th>
           </tr>
         </thead>
@@ -49,12 +81,16 @@ function TipiSpesa() {
           {list.map(t => (
             <tr key={t.id} style={{ opacity: t.attivo ? 1 : 0.5 }}>
               <td style={{ fontWeight: 600 }}>{t.descrizione}</td>
-              <td style={{ color: "var(--text2)" }}>{t.categoria}</td>
-              <td style={{ color: "var(--text2)" }}>{t.riparto}</td>
+              <td>
+                <Badge label={t.categoria} color={CATEGORIA_COLORI[t.categoria] || "gray"} />
+              </td>
               <td>{t.attivo ? <Badge label="Attivo" color="green" /> : <Badge label="Inattivo" color="gray" />}</td>
-              <td style={{ textAlign: "right" }}>
+              <td style={{ textAlign: "right", display: "flex", gap: 6, justifyContent: "flex-end" }}>
                 <Btn variant="secondary" size="sm" onClick={() => setModal({ ...t })}>
-                  <i className="ti ti-edit" /> Rinomina
+                  <i className="ti ti-edit" /> Modifica
+                </Btn>
+                <Btn variant="danger" size="sm" onClick={() => askDelete(t)} title="Elimina (solo se non in uso)">
+                  <i className="ti ti-trash" />
                 </Btn>
               </td>
             </tr>
@@ -92,6 +128,44 @@ function TipiSpesa() {
               Attivo
             </label>
           </div>
+        </Modal>
+      )}
+
+      {conf && (
+        <Modal title="Conferma eliminazione" onClose={() => setConf(null)} width={400}
+          footer={
+            <>
+              <Btn variant="ghost" onClick={() => setConf(null)}>Annulla</Btn>
+              <Btn variant="danger" onClick={doDelete}
+                disabled={conf.deleting || depTot === null || depTot > 0}>
+                <i className="ti ti-trash" /> Elimina
+              </Btn>
+            </>
+          }>
+          <p style={{ margin: "0 0 12px" }}>
+            Eliminare la tipologia <strong>{conf.descrizione}</strong>?
+          </p>
+          {conf.dep === null && (
+            <p style={{ color: "var(--text2)", fontSize: 13 }}>
+              <i className="ti ti-loader-2 ti-spin" /> Verifica dipendenze…
+            </p>
+          )}
+          {conf.dep !== null && depTot === 0 && (
+            <p style={{ color: "#16a34a", fontSize: 13 }}>
+              <i className="ti ti-circle-check" /> Nessuna spesa associata. Eliminazione possibile.
+            </p>
+          )}
+          {conf.dep !== null && depTot > 0 && (
+            <div style={{ background: "var(--bg3)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", fontSize: 13 }}>
+              <p style={{ color: "#dc2626", fontWeight: 600, margin: "0 0 6px" }}>
+                <i className="ti ti-alert-triangle" /> Impossibile eliminare: tipo spesa in uso.
+              </p>
+              <ul style={{ margin: 0, paddingLeft: 18, color: "var(--text2)" }}>
+                {conf.dep.documenti > 0      && <li>{conf.dep.documenti} spese inquilini</li>}
+                {conf.dep.spese_proprietari > 0 && <li>{conf.dep.spese_proprietari} spese proprietari</li>}
+              </ul>
+            </div>
+          )}
         </Modal>
       )}
     </div>

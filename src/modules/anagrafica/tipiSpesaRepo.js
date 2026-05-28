@@ -22,5 +22,12 @@ export const tipiSpesaRepo = {
     if (!r[0]) throw new Error(`Tipo spesa ${id} non trovato`);
     return r[0];
   },
+  async checkDipendenze(id) {
+    const [doc, sp] = await Promise.all([
+      query(`SELECT COUNT(*)::int AS n FROM documenti         WHERE tipo_spesa_id=$1`, [id]),
+      query(`SELECT COUNT(*)::int AS n FROM spese_proprietari WHERE tipo_spesa_id=$1`, [id]),
+    ]);
+    return { documenti: doc[0].n, spese_proprietari: sp[0].n };
+  },
   async remove(id) { await query(`DELETE FROM tipi_spesa WHERE id=$1`, [id]); },
 };

@@ -157,9 +157,20 @@ export const tipiSpesaRouter = Router();
 tipiSpesaRouter.get("/",       h(async (_, r) => r.json(await tipiSpesaRepo.listAll())));
 tipiSpesaRouter.post("/",      h(async (q, r) => r.status(201).json(await tipiSpesaRepo.create(q.body))));
 tipiSpesaRouter.put("/:id",    h(async (q, r) => r.json(await tipiSpesaRepo.update(q.params.id, q.body))));
-tipiSpesaRouter.delete("/:id", h(async () => {
-  const err = new Error("I tipi spesa non possono essere eliminati se in uso. Usa rinomina.");
-  err.status = 409; throw err;
+tipiSpesaRouter.get("/:id/dipendenze", h(async (q, r) =>
+  r.json(await tipiSpesaRepo.checkDipendenze(q.params.id))
+));
+tipiSpesaRouter.delete("/:id", h(async (q, r) => {
+  const dep = await tipiSpesaRepo.checkDipendenze(q.params.id);
+  const tot = dep.documenti + dep.spese_proprietari;
+  if (tot > 0) {
+    const err = new Error(
+      `Impossibile eliminare: tipo spesa in uso (${dep.documenti} spese inquilini, ${dep.spese_proprietari} spese proprietari).`
+    );
+    err.status = 409; throw err;
+  }
+  await tipiSpesaRepo.remove(q.params.id);
+  r.status(204).end();
 }));
 
 // ── TIPI VERSAMENTO ───────────────────────────────────────────────────────────
