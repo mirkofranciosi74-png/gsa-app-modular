@@ -23,11 +23,12 @@ ALTER TABLE v2.fatto_economico
   -- note libere
   ADD COLUMN IF NOT EXISTS note              TEXT;
 
--- Constraint periodicità valida (se presente)
+-- Constraint periodicità valida — NOT VALID per non bloccare valori legacy
 DO $$ BEGIN
   ALTER TABLE v2.fatto_economico
     ADD CONSTRAINT fe_periodicita_chk
-      CHECK (periodicita IN ('una_tantum','mensile','bimestrale','trimestrale','semestrale','annuale'));
+      CHECK (periodicita IN ('una_tantum','mensile','bimestrale','trimestrale','semestrale','annuale'))
+      NOT VALID;
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Constraint rif_a >= rif_da

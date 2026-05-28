@@ -121,11 +121,11 @@ ALTER TABLE v2.fatto_economico
   -- Numero fattura (alias semantico di numero_doc)
   ADD COLUMN IF NOT EXISTS numero_fattura       TEXT;
 
--- Almeno un riferimento (immobile o condominio)
+-- Almeno un riferimento (immobile o condominio) — NOT VALID per non bloccare righe legacy
 DO $$ BEGIN
   ALTER TABLE v2.fatto_economico
     ADD CONSTRAINT fe_riferimento_chk
-      CHECK (immobile_id IS NOT NULL OR condominio_id IS NOT NULL);
+      CHECK (immobile_id IS NOT NULL OR condominio_id IS NOT NULL) NOT VALID;
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 CREATE INDEX IF NOT EXISTS idx_v2_fe_condominio
