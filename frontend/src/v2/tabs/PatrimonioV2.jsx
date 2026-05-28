@@ -81,10 +81,64 @@ function CondominioModal({ initial, onSave, onClose }) {
   );
 }
 
+// ── Modale riassegna condominio ───────────────────────────────────────────────
+function RiassegnaModal({ immobile, condomini, onSave, onClose }) {
+  const [condominioId, setCondominioId] = useState(immobile.condominioId || "");
+  const [saving, setSaving] = useState(false);
+  const [err,    setErr]    = useState(null);
+
+  async function handleSave() {
+    if (!condominioId || condominioId === immobile.condominioId) {
+      setErr("Seleziona un condominio diverso da quello attuale");
+      return;
+    }
+    setSaving(true);
+    try { await onSave(condominioId); onClose(); }
+    catch (e) { setErr(e.message); setSaving(false); }
+  }
+
+  const altri = condomini.filter(c => c.id !== immobile.condominioId);
+
+  return (
+    <Modal title={`Sposta "${immobile.nome}"`} onClose={onClose} width={400}
+           footer={<>
+             <Btn variant="ghost" onClick={onClose}>Annulla</Btn>
+             <Btn variant="primary" onClick={handleSave} disabled={saving}>
+               {saving ? "Sposto…" : "Sposta"}
+             </Btn>
+           </>}>
+      <div style={{ display: "grid", gap: 14 }}>
+        {err && <p style={{ color: "var(--red)", fontSize: 13, margin: 0 }}>{err}</p>}
+        <div style={{
+          padding: "9px 12px", borderRadius: 8, background: "var(--bg3)",
+          fontSize: 12, color: "var(--text2)",
+        }}>
+          <i className="ti ti-building-estate" style={{ marginRight: 6 }} />
+          Condominio attuale: <strong style={{ color: "var(--text)" }}>{immobile.condominioNome}</strong>
+        </div>
+        <Field label="Sposta in *">
+          <select className="inp" value={condominioId}
+                  onChange={e => setCondominioId(e.target.value)} autoFocus>
+            <option value="">— Seleziona —</option>
+            {altri.map(c => (
+              <option key={c.id} value={c.id}>{c.nome}</option>
+            ))}
+          </select>
+        </Field>
+        {altri.length === 0 && (
+          <p style={{ fontSize: 12, color: "var(--text2)", fontStyle: "italic", margin: 0 }}>
+            Non ci sono altri condomini disponibili.
+          </p>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 // ── Modale crea/modifica Immobile ─────────────────────────────────────────────
 function ImmobileModal({ initial, condomini, onSave, onClose }) {
   const [form, setForm] = useState({
-    nome: "", condominioId: "", via: "", citta: "", cap: "", note: "",
+    nome: "", via: "", citta: "", cap: "", note: "",
     ...initial,
     condominioId: initial?.condominioId || "",
   });
@@ -263,7 +317,8 @@ function RuoloModal({ initial, immobileId, onSave, onClose }) {
 }
 
 // ── Pannello dettaglio Immobile ────────────────────────────────────────────────
-function ImmobileDettaglio({ immobile, condomini, onEdit, onClose, onRuoliChange }) {
+function ImmobileDettaglio({ immobile: initialImmobile, condomini, onEdit, onClose, onRuoliChange, onMoved }) {
+  const [immobile,     setImmobile]     = useState(initialImmobile);
   const [ruoli,        setRuoli]        = useState(null);
   const [totali,       setTotali]       = useState(null);
   const [quoteVerifica,setQuoteVerifica]= useState(null);
@@ -273,7 +328,14 @@ function ImmobileDettaglio({ immobile, condomini, onEdit, onClose, onRuoliChange
   const [delRuoloId,   setDelRuoloId]   = useState(null);
   const [deleting,     setDeleting]     = useState(false);
   const [openSection,  setOpenSection]  = useState("ruoli");
+  const [sposta,       setSposta]       = useState(false);
   const [err,          setErr]          = useState(null);
+
+  async function handleSposta(newCondominioId) {
+    const updated = await immobiliV2.aggiorna(immobile.id, { condominioId: newCondominioId });
+    setImmobile(updated);
+    onMoved?.();
+  }
 
   const loadRuoli = useCallback(async () => {
     try {
@@ -343,6 +405,9 @@ function ImmobileDettaglio({ immobile, condomini, onEdit, onClose, onRuoliChange
            onClose={onClose} width={640}
            footer={<>
              <Btn variant="ghost" onClick={onClose}>Chiudi</Btn>
+             <Btn variant="ghost" onClick={() => setSposta(true)} title="Sposta in altro condominio">
+               <i className="ti ti-replace" /> Sposta
+             </Btn>
              <Btn variant="primary" onClick={onEdit}>
                <i className="ti ti-pencil" /> Modifica
              </Btn>
@@ -573,7 +638,99 @@ function ImmobileDettaglio({ immobile, condomini, onEdit, onClose, onRuoliChange
           </div>
         </div>
       )}
+      {sposta && (
+        <RiassegnaModal
+          immobile={immobile}
+          condomini={condomini}
+          onSave={handleSposta}
+          onClose={() => setSposta(false)}
+        />
+      )}
     </Modal>
+  );
+}
+
+// ── Card immobile (usata anche nella sezione condomini) ───────────────────────
+function ImmobileCard({ im, condomini, onEdit, onDetail, onDeleted, onMoved, showCondominio = true }) {
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [deleting,   setDeleting]   = useState(false);
+  const [delErr,     setDelErr]     = useState(null);
+
+  async function handleDelete() {
+    setDeleting(true);
+    setDelErr(null);
+    try {
+      await immobiliV2.elimina(im.id);
+      setConfirmDel(false);
+      onDeleted?.();
+    } catch (e) {
+      setDelErr(e.message);
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <>
+      <div onClick={onDetail}
+           style={{
+             background: "var(--bg2)", border: "1px solid var(--border)",
+             borderRadius: 10, padding: "12px 16px", cursor: "pointer",
+             display: "grid", gridTemplateColumns: "1fr auto", gap: 12,
+             alignItems: "center", transition: "border-color 0.15s",
+           }}
+           onMouseEnter={e => e.currentTarget.style.borderColor = "var(--accent)"}
+           onMouseLeave={e => e.currentTarget.style.borderColor = "var(--border)"}>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+            <i className="ti ti-building" style={{ color: "var(--accent)", fontSize: 15 }} />
+            <span style={{ fontWeight: 700, fontSize: 14 }}>{im.nome}</span>
+            {!im.attivo && <Badge label="Inattivo" color="gray" />}
+          </div>
+          <p style={{ fontSize: 12, color: "var(--text2)", margin: 0 }}>
+            {showCondominio && im.condominioNome && <>{im.condominioNome}{(im.via || im.citta) && " · "}</>}
+            {im.via}{im.citta && `, ${im.citta}`}
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 4 }} onClick={e => e.stopPropagation()}>
+          <Btn size="sm" variant="ghost" title="Modifica" onClick={onEdit}>
+            <i className="ti ti-pencil" />
+          </Btn>
+          <Btn size="sm" variant="ghost" title="Elimina"
+               onClick={() => setConfirmDel(true)}>
+            <i className="ti ti-trash" style={{ color: "var(--red)" }} />
+          </Btn>
+          <Btn size="sm" variant="ghost" title="Dettaglio" onClick={onDetail}>
+            <i className="ti ti-chevron-right" />
+          </Btn>
+        </div>
+      </div>
+
+      {confirmDel && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
+                      display: "flex", alignItems: "center", justifyContent: "center", zIndex: 500 }}>
+          <div style={{ background: "var(--bg2)", border: "1px solid var(--red)", borderRadius: 12,
+                        padding: 24, maxWidth: 400, width: "100%" }}>
+            <p style={{ fontWeight: 600, marginBottom: 8 }}>Eliminare "{im.nome}"?</p>
+            <p style={{ fontSize: 13, color: "var(--text2)", marginBottom: 16 }}>
+              L'operazione è irreversibile. Se l'immobile ha ruoli, movimenti o regole associate
+              non potrà essere eliminato.
+            </p>
+            {delErr && (
+              <p style={{ fontSize: 12, color: "var(--red)", marginBottom: 12,
+                          padding: "8px 10px", borderRadius: 7, background: "rgba(239,68,68,0.08)" }}>
+                {delErr}
+              </p>
+            )}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <Btn variant="ghost" onClick={() => { setConfirmDel(false); setDelErr(null); }}>Annulla</Btn>
+              <Btn variant="danger" disabled={deleting} onClick={handleDelete}>
+                {deleting ? "Elimino…" : <><i className="ti ti-trash" /> Elimina</>}
+              </Btn>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -651,39 +808,16 @@ function ImmobiliSection({ condomini }) {
       {immobili && immobili.length > 0 && (
         <div style={{ display: "grid", gap: 8 }}>
           {immobili.map(im => (
-            <div key={im.id} onClick={() => setSelected(im)}
-                 style={{
-                   background: "var(--bg2)", border: "1px solid var(--border)",
-                   borderRadius: 10, padding: "13px 16px", cursor: "pointer",
-                   display: "grid", gridTemplateColumns: "1fr auto", gap: 12,
-                   alignItems: "center", transition: "border-color 0.15s",
-                 }}
-                 onMouseEnter={e => e.currentTarget.style.borderColor = "var(--accent)"}
-                 onMouseLeave={e => e.currentTarget.style.borderColor = "var(--border)"}
-            >
-              <div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                  <i className="ti ti-building" style={{ color: "var(--accent)", fontSize: 16 }} />
-                  <span style={{ fontWeight: 700, fontSize: 15 }}>{im.nome}</span>
-                  {!im.attivo && <Badge label="Inattivo" color="gray" />}
-                </div>
-                <p style={{ fontSize: 12, color: "var(--text2)", margin: 0 }}>
-                  {im.condominioNome}
-                  {im.via && ` · ${im.via}`}
-                  {im.citta && `, ${im.citta}`}
-                </p>
-              </div>
-              <div style={{ display: "flex", gap: 4 }}>
-                <Btn size="sm" variant="ghost" title="Modifica"
-                     onClick={e => { e.stopPropagation(); openEdit(im); }}>
-                  <i className="ti ti-pencil" />
-                </Btn>
-                <Btn size="sm" variant="ghost" title="Dettaglio"
-                     onClick={e => { e.stopPropagation(); setSelected(im); }}>
-                  <i className="ti ti-chevron-right" />
-                </Btn>
-              </div>
-            </div>
+            <ImmobileCard
+              key={im.id}
+              im={im}
+              condomini={condomini}
+              showCondominio
+              onEdit={() => openEdit(im)}
+              onDetail={() => setSelected(im)}
+              onDeleted={load}
+              onMoved={load}
+            />
           ))}
         </div>
       )}
@@ -695,6 +829,7 @@ function ImmobiliSection({ condomini }) {
           onEdit={() => openEdit(selected)}
           onClose={() => setSelected(null)}
           onRuoliChange={load}
+          onMoved={() => { load(); setSelected(null); }}
         />
       )}
 
@@ -710,11 +845,140 @@ function ImmobiliSection({ condomini }) {
   );
 }
 
+// ── Card condominio espandibile ────────────────────────────────────────────────
+function CondominioCard({ c, tutti_condomini, onEditCondominio, onReload }) {
+  const [open,     setOpen]     = useState(false);
+  const [immobili, setImmobili] = useState(null);
+  const [loading,  setLoading]  = useState(false);
+  const [selected, setSelected] = useState(null);
+  const [editing,  setEditing]  = useState(null);
+  const [showForm, setShowForm] = useState(false);
+
+  const loadImmobili = useCallback(async () => {
+    setLoading(true);
+    try { setImmobili(await immobiliV2.lista({ condominioId: c.id })); }
+    catch (_) {}
+    finally { setLoading(false); }
+  }, [c.id]);
+
+  useEffect(() => { if (open) loadImmobili(); }, [open, loadImmobili]);
+
+  async function handleSaveImmobile(form) {
+    if (editing?.id) await immobiliV2.aggiorna(editing.id, form);
+    else             await immobiliV2.crea({ ...form, condominioId: c.id });
+    await loadImmobili();
+    onReload(); // aggiorna contatori header
+  }
+
+  function openEdit(im) {
+    setEditing(im);
+    setSelected(null);
+    setShowForm(true);
+  }
+
+  return (
+    <div style={{
+      background: "var(--bg2)", border: "1px solid var(--border)",
+      borderRadius: 10, overflow: "hidden",
+    }}>
+      {/* Header card condominio */}
+      <div style={{
+        padding: "13px 16px",
+        display: "grid", gridTemplateColumns: "1fr auto", gap: 12, alignItems: "center",
+      }}>
+        <button onClick={() => setOpen(o => !o)} style={{
+          display: "flex", alignItems: "center", gap: 10,
+          background: "none", border: "none", cursor: "pointer", textAlign: "left", padding: 0,
+        }}>
+          <i className={`ti ti-chevron-${open ? "down" : "right"}`}
+             style={{ fontSize: 13, color: "var(--text2)", flexShrink: 0 }} />
+          <i className="ti ti-building-estate" style={{ color: "var(--accent)", fontSize: 16, flexShrink: 0 }} />
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontWeight: 700, fontSize: 15 }}>{c.nome}</span>
+              {c.virtuale && <Badge label="virtuale" color="gray" />}
+            </div>
+            <p style={{ fontSize: 12, color: "var(--text2)", margin: 0 }}>
+              {c.nImmobili ?? 0} immobile{c.nImmobili !== 1 ? "i" : ""}
+              {c.indirizzo && ` · ${c.indirizzo}`}
+            </p>
+          </div>
+        </button>
+        <div style={{ display: "flex", gap: 4 }}>
+          <Btn size="sm" variant="ghost" title="Aggiungi immobile"
+               onClick={() => { setEditing(null); setOpen(true); setShowForm(true); }}>
+            <i className="ti ti-plus" />
+          </Btn>
+          <Btn size="sm" variant="ghost" title="Modifica condominio"
+               onClick={() => onEditCondominio(c)}>
+            <i className="ti ti-pencil" />
+          </Btn>
+        </div>
+      </div>
+
+      {/* Lista immobili espansa */}
+      {open && (
+        <div style={{ borderTop: "1px solid var(--border)", padding: "10px 16px 14px" }}>
+          {loading && (
+            <div style={{ textAlign: "center", padding: 20, color: "var(--text2)" }}>
+              <i className="ti ti-loader-2 ti-spin" />
+            </div>
+          )}
+          {!loading && immobili?.length === 0 && (
+            <p style={{ fontSize: 13, color: "var(--text2)", textAlign: "center", padding: "12px 0" }}>
+              Nessun immobile. <button onClick={() => setShowForm(true)}
+                style={{ background: "none", border: "none", color: "var(--accent)",
+                         cursor: "pointer", fontSize: 13, padding: 0 }}>
+                Creane uno ›
+              </button>
+            </p>
+          )}
+          {immobili && immobili.length > 0 && (
+            <div style={{ display: "grid", gap: 6 }}>
+              {immobili.map(im => (
+                <ImmobileCard
+                  key={im.id}
+                  im={im}
+                  condomini={tutti_condomini}
+                  showCondominio={false}
+                  onEdit={() => openEdit(im)}
+                  onDetail={() => setSelected(im)}
+                  onDeleted={() => { loadImmobili(); onReload(); }}
+                  onMoved={() => { loadImmobili(); onReload(); }}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Modali */}
+      {selected && (
+        <ImmobileDettaglio
+          immobile={selected}
+          condomini={tutti_condomini}
+          onEdit={() => openEdit(selected)}
+          onClose={() => setSelected(null)}
+          onRuoliChange={loadImmobili}
+          onMoved={() => { loadImmobili(); onReload(); setSelected(null); }}
+        />
+      )}
+      {showForm && (
+        <ImmobileModal
+          initial={editing ?? { condominioId: c.id }}
+          condomini={tutti_condomini}
+          onSave={handleSaveImmobile}
+          onClose={() => { setShowForm(false); setEditing(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
 // ── Sezione Condomini ─────────────────────────────────────────────────────────
 function CondominiSection({ condomini, onReload }) {
   const [editing,  setEditing]  = useState(null);
   const [showForm, setShowForm] = useState(false);
-  const [err,      setErr]      = useState(null);
 
   async function handleSave(form) {
     if (editing?.id) await condominiV2.aggiorna(editing.id, form);
@@ -730,34 +994,22 @@ function CondominiSection({ condomini, onReload }) {
         </Btn>
       </div>
 
-      {err && (
-        <div style={{ color: "var(--red)", fontSize: 12, marginBottom: 12,
-                      padding: "8px 12px", borderRadius: 8, background: "rgba(239,68,68,0.08)" }}>{err}</div>
+      {condomini.length === 0 && (
+        <div style={{ textAlign: "center", padding: 40, color: "var(--text2)" }}>
+          <i className="ti ti-building-estate" style={{ fontSize: 32, opacity: 0.3, display: "block", marginBottom: 10 }} />
+          Nessun condominio. Crea il primo.
+        </div>
       )}
 
       <div style={{ display: "grid", gap: 8 }}>
         {condomini.map(c => (
-          <div key={c.id} style={{
-            background: "var(--bg2)", border: "1px solid var(--border)",
-            borderRadius: 10, padding: "13px 16px",
-            display: "grid", gridTemplateColumns: "1fr auto", gap: 12, alignItems: "center",
-          }}>
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                <i className="ti ti-building-estate" style={{ color: "var(--accent)", fontSize: 16 }} />
-                <span style={{ fontWeight: 700, fontSize: 15 }}>{c.nome}</span>
-                {c.virtuale && <Badge label="virtuale" color="gray" />}
-              </div>
-              <p style={{ fontSize: 12, color: "var(--text2)", margin: 0 }}>
-                {c.nImmobili ?? 0} immobile{c.nImmobili !== 1 ? "i" : ""}
-                {c.indirizzo && ` · ${c.indirizzo}`}
-              </p>
-            </div>
-            <Btn size="sm" variant="ghost" title="Modifica"
-                 onClick={() => { setEditing(c); setShowForm(true); }}>
-              <i className="ti ti-pencil" />
-            </Btn>
-          </div>
+          <CondominioCard
+            key={c.id}
+            c={c}
+            tutti_condomini={condomini}
+            onEditCondominio={cond => { setEditing(cond); setShowForm(true); }}
+            onReload={onReload}
+          />
         ))}
       </div>
 

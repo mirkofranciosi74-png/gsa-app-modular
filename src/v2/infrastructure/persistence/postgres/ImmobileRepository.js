@@ -84,5 +84,25 @@ export function makeImmobileRepository(pool) {
       if (!rows[0]) throw new NotFoundError("Immobile", id);
       return this.findById(id);
     },
+
+    async countDipendenze(id) {
+      const [r] = await q(`
+        SELECT
+          (SELECT COUNT(*) FROM v2.ruolo_persona    WHERE immobile_id = $1) AS n_ruoli,
+          (SELECT COUNT(*) FROM v2.fatto_economico  WHERE immobile_id = $1) AS n_fatti,
+          (SELECT COUNT(*) FROM v2.regola_riparto   WHERE immobile_id = $1) AS n_regole
+      `, [id]);
+      return {
+        nRuoli:  Number(r.n_ruoli),
+        nFatti:  Number(r.n_fatti),
+        nRegole: Number(r.n_regole),
+        totale:  Number(r.n_ruoli) + Number(r.n_fatti) + Number(r.n_regole),
+      };
+    },
+
+    async remove(id) {
+      const rows = await q(`DELETE FROM v2.immobile WHERE id = $1 RETURNING id`, [id]);
+      if (!rows[0]) throw new NotFoundError("Immobile", id);
+    },
   };
 }

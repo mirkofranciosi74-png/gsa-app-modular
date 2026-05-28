@@ -39,6 +39,19 @@ export function makePatrimonioService({ condominioRepo, immobileRepo, ruoloRepo 
     aggiornaImmobile(id, dati) {
       return immobileRepo.update(id, dati);
     },
+    dipendenzaImmobile(id) {
+      return immobileRepo.countDipendenze(id);
+    },
+    async rimuoviImmobile(id) {
+      const dep = await immobileRepo.countDipendenze(id);
+      if (dep.totale > 0) {
+        const { ValidationError } = await import("../../domain/shared/DomainError.js");
+        throw new ValidationError(
+          `Impossibile eliminare: l'immobile ha ${dep.nRuoli} ruoli, ${dep.nFatti} movimenti e ${dep.nRegole} regole associate.`
+        );
+      }
+      return immobileRepo.remove(id);
+    },
 
     // ── RuoloPersona ───────────────────────────────────────────────────────────
     ruoliPerImmobile(immobileId, filtri) {

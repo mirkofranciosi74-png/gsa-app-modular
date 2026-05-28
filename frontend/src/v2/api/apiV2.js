@@ -64,6 +64,8 @@ export const immobiliV2 = {
   trovaPerId:       id                    => get(`/immobili/${id}`),
   crea:             dati                  => post("/immobili", dati),
   aggiorna:         (id, dati)            => put(`/immobili/${id}`, dati),
+  elimina:          id                    => del(`/immobili/${id}`),
+  dipendenze:       id                    => get(`/immobili/${id}/dipendenze`),
   ruoli:            (id, filtri = {})     => {
     const p = new URLSearchParams();
     if (filtri.ruolo)   p.set("ruolo",   filtri.ruolo);

@@ -32,6 +32,15 @@ export function makeImmobileRoutes({ patrimonioService, ripartoService, economia
     res.json(im.toJSON());
   }));
 
+  router.get("/:id/dipendenze", requireRole("admin"), h(async (req, res) =>
+    res.json(await patrimonioService.dipendenzaImmobile(req.params.id))
+  ));
+
+  router.delete("/:id", requireRole("admin"), h(async (req, res) => {
+    await patrimonioService.rimuoviImmobile(req.params.id);
+    res.status(204).end();
+  }));
+
   // ── Ruoli dell'immobile ──────────────────────────────────────────────────────
   router.get("/:id/ruoli", h(async (req, res) => {
     const ruoli = await patrimonioService.ruoliPerImmobile(req.params.id, {
