@@ -32,5 +32,10 @@ export function makeCondominioRoutes({ patrimonioService }) {
     res.json({ ok: true });
   }));
 
+  router.delete("/:id", requireRole("admin"), h(async (req, res) => {
+    await patrimonioService.rimuoviCondominio(req.params.id);
+    res.status(204).end();
+  }));
+
   return router;
 }

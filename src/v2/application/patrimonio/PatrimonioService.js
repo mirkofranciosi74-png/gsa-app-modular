@@ -25,6 +25,16 @@ export function makePatrimonioService({ condominioRepo, immobileRepo, ruoloRepo 
     consolidaCondomini(id, sourceIds) {
       return condominioRepo.consolida(id, sourceIds);
     },
+    async rimuoviCondominio(id) {
+      const n = await condominioRepo.countImmobili(id);
+      if (n > 0) {
+        const { ValidationError } = await import("../../domain/shared/DomainError.js");
+        throw new ValidationError(
+          `Impossibile eliminare: il condominio ha ${n} immobile${n !== 1 ? "i" : ""} associato${n !== 1 ? "i" : ""}.`
+        );
+      }
+      return condominioRepo.remove(id);
+    },
 
     // ── Immobile ───────────────────────────────────────────────────────────────
     listaImmobili({ condominioId, attivo } = {}) {

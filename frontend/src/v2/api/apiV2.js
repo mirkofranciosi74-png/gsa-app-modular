@@ -50,6 +50,7 @@ export const condominiV2 = {
   trovaPerId:  id                 => get(`/condomini/${id}`),
   crea:        dati               => post("/condomini", dati),
   aggiorna:    (id, dati)         => put(`/condomini/${id}`, dati),
+  elimina:     id                 => del(`/condomini/${id}`),
   consolida:   (id, sourceIds)    => post(`/condomini/${id}/consolida`, { sourceIds }),
 };
 

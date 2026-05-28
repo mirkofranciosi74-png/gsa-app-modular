@@ -846,13 +846,28 @@ function ImmobiliSection({ condomini }) {
 }
 
 // ── Card condominio espandibile ────────────────────────────────────────────────
-function CondominioCard({ c, tutti_condomini, onEditCondominio, onReload }) {
-  const [open,     setOpen]     = useState(false);
-  const [immobili, setImmobili] = useState(null);
-  const [loading,  setLoading]  = useState(false);
-  const [selected, setSelected] = useState(null);
-  const [editing,  setEditing]  = useState(null);
-  const [showForm, setShowForm] = useState(false);
+function CondominioCard({ c, tutti_condomini, onEditCondominio, onReload, onDeleted }) {
+  const [open,       setOpen]       = useState(false);
+  const [immobili,   setImmobili]   = useState(null);
+  const [loading,    setLoading]    = useState(false);
+  const [selected,   setSelected]   = useState(null);
+  const [editing,    setEditing]    = useState(null);
+  const [showForm,   setShowForm]   = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [deleting,   setDeleting]   = useState(false);
+  const [delErr,     setDelErr]     = useState(null);
+
+  async function handleDelete() {
+    setDeleting(true);
+    setDelErr(null);
+    try {
+      await condominiV2.elimina(c.id);
+      onDeleted?.();
+    } catch (e) {
+      setDelErr(e.message);
+      setDeleting(false);
+    }
+  }
 
   const loadImmobili = useCallback(async () => {
     setLoading(true);
@@ -913,6 +928,10 @@ function CondominioCard({ c, tutti_condomini, onEditCondominio, onReload }) {
                onClick={() => onEditCondominio(c)}>
             <i className="ti ti-pencil" />
           </Btn>
+          <Btn size="sm" variant="ghost" title="Elimina condominio"
+               onClick={() => setConfirmDel(true)}>
+            <i className="ti ti-trash" style={{ color: "var(--red)" }} />
+          </Btn>
         </div>
       </div>
 
@@ -971,6 +990,31 @@ function CondominioCard({ c, tutti_condomini, onEditCondominio, onReload }) {
           onClose={() => { setShowForm(false); setEditing(null); }}
         />
       )}
+
+      {confirmDel && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
+                      display: "flex", alignItems: "center", justifyContent: "center", zIndex: 500 }}>
+          <div style={{ background: "var(--bg2)", border: "1px solid var(--red)", borderRadius: 12,
+                        padding: 24, maxWidth: 400, width: "100%" }}>
+            <p style={{ fontWeight: 600, marginBottom: 8 }}>Eliminare "{c.nome}"?</p>
+            <p style={{ fontSize: 13, color: "var(--text2)", marginBottom: 16 }}>
+              Il condominio deve essere privo di immobili per poter essere eliminato.
+            </p>
+            {delErr && (
+              <p style={{ fontSize: 12, color: "var(--red)", marginBottom: 12,
+                          padding: "8px 10px", borderRadius: 7, background: "rgba(239,68,68,0.08)" }}>
+                {delErr}
+              </p>
+            )}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <Btn variant="ghost" onClick={() => { setConfirmDel(false); setDelErr(null); }}>Annulla</Btn>
+              <Btn variant="danger" disabled={deleting} onClick={handleDelete}>
+                {deleting ? "Elimino…" : <><i className="ti ti-trash" /> Elimina</>}
+              </Btn>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1009,6 +1053,7 @@ function CondominiSection({ condomini, onReload }) {
             tutti_condomini={condomini}
             onEditCondominio={cond => { setEditing(cond); setShowForm(true); }}
             onReload={onReload}
+            onDeleted={onReload}
           />
         ))}
       </div>

@@ -51,6 +51,16 @@ export function makeCondominioRepository(pool) {
       return Condominio.fromRow(rows[0]);
     },
 
+    async countImmobili(id) {
+      const [r] = await q(`SELECT COUNT(*)::INT AS n FROM v2.immobile WHERE condominio_id = $1`, [id]);
+      return Number(r.n);
+    },
+
+    async remove(id) {
+      const rows = await q(`DELETE FROM v2.condominio WHERE id = $1 RETURNING id`, [id]);
+      if (!rows[0]) throw new NotFoundError("Condominio", id);
+    },
+
     /**
      * Consolida più condomini virtuali in uno reale.
      * Sposta tutti gli immobili verso il condominio `id`.
