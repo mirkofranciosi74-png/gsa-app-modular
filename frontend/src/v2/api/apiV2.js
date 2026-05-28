@@ -100,10 +100,76 @@ export const ruoliV2 = {
 export const fattiV2 = {
   lista: (filtri = {}) => {
     const p = new URLSearchParams();
-    Object.entries(filtri).forEach(([k, v]) => { if (v !== undefined) p.set(k, v); });
+    Object.entries(filtri).forEach(([k, v]) => { if (v !== undefined && v !== "") p.set(k, v); });
     return get(`/fatti${p.toString() ? "?" + p : ""}`);
   },
   trovaPerId: id => get(`/fatti/${id}`),
+  crea:       dati => post("/fatti", dati),
+  aggiorna:   (id, dati) => put(`/fatti/${id}`, dati),
+  elimina:    id   => del(`/fatti/${id}`),
+
+  // Deduplication
+  duplicatiDati: (filtri = {}) => {
+    const p = new URLSearchParams();
+    Object.entries(filtri).forEach(([k, v]) => { if (v != null && v !== "") p.set(k, v); });
+    return get(`/fatti/duplicati-dati${p.toString() ? "?" + p : ""}`);
+  },
+
+  // PDF — usa FormData (non JSON)
+  checkHash: async (file, excludeId = null) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    if (excludeId) fd.append("excludeId", excludeId);
+    const res = await fetch(BASE + "/fatti/check-hash", {
+      method: "POST",
+      headers: authHeader(),
+      body: fd,
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw Object.assign(new Error(e.error || "Errore"), { status: res.status }); }
+    return res.json();
+  },
+
+  estraiPdf: async (file, { immobili = [], tipologie = [] } = {}) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("immobili",  JSON.stringify(immobili));
+    fd.append("tipologie", JSON.stringify(tipologie));
+    const res = await fetch(BASE + "/fatti/extract", {
+      method: "POST",
+      headers: authHeader(),
+      body: fd,
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw Object.assign(new Error(e.error || "Errore estrazione"), { status: res.status }); }
+    return res.json();
+  },
+
+  uploadPdf: async (id, file) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(BASE + `/fatti/${id}/pdf`, {
+      method: "POST",
+      headers: authHeader(),
+      body: fd,
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw Object.assign(new Error(e.error || "Errore upload"), { status: res.status }); }
+    return res.json();
+  },
+
+  getPdfUrl: id => BASE + `/fatti/${id}/pdf`,
+  eliminaPdf: id => del(`/fatti/${id}/pdf`),
+};
+
+// ── Economia — Tipologie ──────────────────────────────────────────────────────
+export const tipologieV2 = {
+  lista: (filtri = {}) => {
+    const p = new URLSearchParams();
+    Object.entries(filtri).forEach(([k, v]) => { if (v !== undefined && v !== "") p.set(k, v); });
+    return get(`/tipologie${p.toString() ? "?" + p : ""}`);
+  },
+  trovaPerId: id     => get(`/tipologie/${id}`),
+  crea:       dati   => post("/tipologie", dati),
+  aggiorna:   (id, dati) => put(`/tipologie/${id}`, dati),
+  elimina:    id     => del(`/tipologie/${id}`),
 };
 
 // ── Riparto ────────────────────────────────────────────────────────────────────

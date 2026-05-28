@@ -16,6 +16,7 @@ import { makeRuoloPersonaRepository }       from "../infrastructure/persistence/
 import { makeFattoEconomicoRepository }     from "../infrastructure/persistence/postgres/FattoEconomicoRepository.js";
 import { makeRegolaRipartoRepository }      from "../infrastructure/persistence/postgres/RegolaRipartoRepository.js";
 import { makePersonaCondominioRepository }  from "../infrastructure/persistence/postgres/PersonaCondominioRepository.js";
+import { makeTipologiaRepository }          from "../infrastructure/persistence/postgres/TipologiaRepository.js";
 
 // ── Service factories ───────────────────────────────────────────────────────
 import { makePersonaService }   from "../application/anagrafica/PersonaService.js";
@@ -29,6 +30,7 @@ import { makeCondominioRoutes } from "./patrimonio/condominioRoutes.js";
 import { makeImmobileRoutes }   from "./patrimonio/immobileRoutes.js";
 import { makeRuoloRoutes }      from "./patrimonio/ruoloRoutes.js";
 import { makeFattoRoutes }      from "./economia/fattoRoutes.js";
+import { makeTipologiaRoutes }  from "./economia/tipologiaRoutes.js";
 import { makeRipartoRoutes }    from "./riparto/ripartoRoutes.js";
 
 // ── Wire repositories ───────────────────────────────────────────────────────
@@ -39,11 +41,12 @@ const ruoloRepo               = makeRuoloPersonaRepository(pool);
 const fattoRepo               = makeFattoEconomicoRepository(pool);
 const regolaRepo              = makeRegolaRipartoRepository(pool);
 const personaCondominioRepo   = makePersonaCondominioRepository(pool);
+const tipologiaRepo           = makeTipologiaRepository(pool);
 
 // ── Wire services ───────────────────────────────────────────────────────────
 const personaService    = makePersonaService({ personaRepo });
 const patrimonioService = makePatrimonioService({ condominioRepo, immobileRepo, ruoloRepo, personaCondominioRepo });
-const economiaService   = makeEconomiaService({ fattoRepo });
+const economiaService   = makeEconomiaService({ fattoRepo, tipologiaRepo });
 const ripartoService    = makeRipartoService({ regolaRepo, ruoloRepo });
 
 // ── Wire routes ─────────────────────────────────────────────────────────────
@@ -52,6 +55,7 @@ const condominioRoutes = makeCondominioRoutes({ patrimonioService });
 const immobileRoutes   = makeImmobileRoutes({ patrimonioService, ripartoService, economiaService });
 const ruoloRoutes      = makeRuoloRoutes({ patrimonioService });
 const fattoRoutes      = makeFattoRoutes({ economiaService });
+const tipologiaRoutes  = makeTipologiaRoutes({ economiaService });
 const ripartoRoutes    = makeRipartoRoutes({ ripartoService });
 
 // ── Router principale ───────────────────────────────────────────────────────
@@ -64,6 +68,7 @@ v2DddRouter.use("/condomini",  condominioRoutes);
 v2DddRouter.use("/immobili",   immobileRoutes);
 v2DddRouter.use("/ruoli",      ruoloRoutes);
 v2DddRouter.use("/fatti",      fattoRoutes);
+v2DddRouter.use("/tipologie",  tipologiaRoutes);
 v2DddRouter.use("/riparto",    ripartoRoutes);
 
 // ── Migration status (admin only) ───────────────────────────────────────────
