@@ -13,6 +13,13 @@ const RUOLO_INFO = {
   contatto:     { label: "Contatto",     color: "gray"   },
 };
 
+const RUOLO_PC_INFO = {
+  condomino:      { label: "Condomino",      color: "blue"   },
+  amministratore: { label: "Amministratore", color: "purple" },
+  delegato:       { label: "Delegato",       color: "yellow" },
+  altro:          { label: "Altro",          color: "gray"   },
+};
+
 function oggi() { return new Date().toISOString().slice(0, 10); }
 function isAttivoRuolo(r) {
   const d = oggi();
@@ -378,6 +385,108 @@ function RuoloModal({ initial, immobileId, onSave, onClose }) {
                    value={form.caparra} onChange={setNum("caparra")} />
           </Field>
         </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ── Modale associazione Persona ↔ Condominio ─────────────────────────────────
+function PersonaCondominioModal({ initial, condominioId, onSave, onClose }) {
+  const [persone, setPersone] = useState([]);
+  const [queryP,  setQueryP]  = useState(
+    initial ? [initial.personaCognome, initial.personaNome].filter(Boolean).join(" ") : ""
+  );
+  const [form, setForm] = useState({
+    personaId:  initial?.personaId  || "",
+    ruolo:      initial?.ruolo      || "condomino",
+    validitaDa: initial?.validitaDa || "",
+    validitaA:  initial?.validitaA  || "",
+    note:       initial?.note       || "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [err,    setErr]    = useState(null);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      personeV2.lista(queryP || undefined).then(setPersone).catch(() => {});
+    }, 250);
+    return () => clearTimeout(t);
+  }, [queryP]);
+
+  const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
+
+  async function handleSave() {
+    if (!form.personaId) { setErr("Seleziona una persona"); return; }
+    if (!form.validitaDa) { setErr("Data inizio obbligatoria"); return; }
+    setSaving(true);
+    try { await onSave({ ...form, condominioId }); onClose(); }
+    catch (e) { setErr(e.message); setSaving(false); }
+  }
+
+  const nomeSelezionata = queryP;
+
+  return (
+    <Modal title={initial ? "Modifica associazione" : "Associa persona al condominio"}
+           onClose={onClose} width={480}
+           footer={<>
+             <Btn variant="ghost" onClick={onClose}>Annulla</Btn>
+             <Btn variant="primary" onClick={handleSave} disabled={saving}>
+               {saving ? "Salvo…" : "Salva"}
+             </Btn>
+           </>}>
+      <div style={{ display: "grid", gap: 14 }}>
+        {err && <p style={{ color: "var(--red)", fontSize: 13, margin: 0 }}>{err}</p>}
+
+        <Field label="Persona *">
+          <input className="inp" placeholder="Cerca per nome…" value={queryP}
+                 onChange={e => { setQueryP(e.target.value); setForm(f => ({ ...f, personaId: "" })); }} />
+          {persone.length > 0 && !form.personaId && (
+            <div style={{ border: "1px solid var(--border)", borderRadius: 8, marginTop: 4,
+                          maxHeight: 160, overflowY: "auto", background: "var(--bg2)" }}>
+              {persone.map(p => {
+                const nome = p.ragioneSociale || [p.cognome, p.nome].filter(Boolean).join(" ");
+                return (
+                  <button key={p.id}
+                          onClick={() => { setForm(f => ({ ...f, personaId: p.id })); setQueryP(nome); }}
+                          style={{ width: "100%", padding: "8px 12px", border: "none", background: "none",
+                                   cursor: "pointer", color: "var(--text)", fontSize: 13, textAlign: "left",
+                                   borderBottom: "1px solid var(--border)" }}>
+                    {nome}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {form.personaId && (
+            <p style={{ fontSize: 12, color: "var(--green)", margin: "4px 0 0" }}>
+              <i className="ti ti-circle-check" style={{ marginRight: 4 }} />
+              {nomeSelezionata} selezionata
+            </p>
+          )}
+        </Field>
+
+        <Field label="Ruolo *">
+          <select className="inp" value={form.ruolo} onChange={set("ruolo")}>
+            <option value="condomino">Condomino</option>
+            <option value="amministratore">Amministratore</option>
+            <option value="delegato">Delegato</option>
+            <option value="altro">Altro</option>
+          </select>
+        </Field>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Field label="Validità da *">
+            <input className="inp" type="date" value={form.validitaDa} onChange={set("validitaDa")} />
+          </Field>
+          <Field label="Validità a">
+            <input className="inp" type="date" value={form.validitaA} onChange={set("validitaA")} />
+          </Field>
+        </div>
+
+        <Field label="Note">
+          <textarea className="inp" rows={2} value={form.note} onChange={set("note")}
+                    style={{ resize: "vertical" }} />
+        </Field>
       </div>
     </Modal>
   );
@@ -914,15 +1023,24 @@ function ImmobiliSection({ condomini }) {
 
 // ── Card condominio espandibile ────────────────────────────────────────────────
 function CondominioCard({ c, tutti_condomini, onEditCondominio, onReload, onDeleted }) {
-  const [open,       setOpen]       = useState(false);
-  const [immobili,   setImmobili]   = useState(null);
-  const [loading,    setLoading]    = useState(false);
-  const [selected,   setSelected]   = useState(null);
-  const [editing,    setEditing]    = useState(null);
-  const [showForm,   setShowForm]   = useState(false);
-  const [confirmDel, setConfirmDel] = useState(false);
-  const [deleting,   setDeleting]   = useState(false);
-  const [delErr,     setDelErr]     = useState(null);
+  const [open,        setOpen]        = useState(false);
+  const [subTab,      setSubTab]      = useState("immobili"); // "immobili" | "persone"
+  // immobili
+  const [immobili,    setImmobili]    = useState(null);
+  const [loadingImm,  setLoadingImm]  = useState(false);
+  const [selected,    setSelected]    = useState(null);
+  const [editing,     setEditing]     = useState(null);
+  const [showForm,    setShowForm]    = useState(false);
+  // persone-condominio
+  const [personePC,   setPersonePC]   = useState(null);
+  const [loadingPC,   setLoadingPC]   = useState(false);
+  const [editPC,      setEditPC]      = useState(null);  // null | false (new) | object (edit)
+  const [delPCId,     setDelPCId]     = useState(null);
+  const [deletingPC,  setDeletingPC]  = useState(false);
+  // condominio delete
+  const [confirmDel,  setConfirmDel]  = useState(false);
+  const [deleting,    setDeleting]    = useState(false);
+  const [delErr,      setDelErr]      = useState(null);
 
   async function handleDelete() {
     setDeleting(true);
@@ -937,25 +1055,54 @@ function CondominioCard({ c, tutti_condomini, onEditCondominio, onReload, onDele
   }
 
   const loadImmobili = useCallback(async () => {
-    setLoading(true);
+    setLoadingImm(true);
     try { setImmobili(await immobiliV2.lista({ condominioId: c.id })); }
     catch (_) {}
-    finally { setLoading(false); }
+    finally { setLoadingImm(false); }
   }, [c.id]);
 
-  useEffect(() => { if (open) loadImmobili(); }, [open, loadImmobili]);
+  const loadPersonePC = useCallback(async () => {
+    setLoadingPC(true);
+    try { setPersonePC(await condominiV2.persone(c.id)); }
+    catch (_) {}
+    finally { setLoadingPC(false); }
+  }, [c.id]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (subTab === "immobili" && !immobili) loadImmobili();
+    if (subTab === "persone"  && !personePC) loadPersonePC();
+  }, [open, subTab, immobili, personePC, loadImmobili, loadPersonePC]);
 
   async function handleSaveImmobile(form) {
     if (editing?.id) await immobiliV2.aggiorna(editing.id, form);
     else             await immobiliV2.crea({ ...form, condominioId: c.id });
     await loadImmobili();
-    onReload(); // aggiorna contatori header
+    onReload();
+  }
+
+  async function handleSavePC(form) {
+    if (editPC?.id) await condominiV2.aggiornaAssociazione(c.id, editPC.id, form);
+    else            await condominiV2.associaPersona(c.id, form);
+    await loadPersonePC();
+  }
+
+  async function handleDelPC(id) {
+    setDeletingPC(true);
+    try { await condominiV2.rimuoviAssociazione(c.id, id); await loadPersonePC(); setDelPCId(null); }
+    catch (_) {}
+    finally { setDeletingPC(false); }
   }
 
   function openEdit(im) {
     setEditing(im);
     setSelected(null);
     setShowForm(true);
+  }
+
+  const oggiStr = oggi();
+  function isAttivoPC(pc) {
+    return (!pc.validitaDa || pc.validitaDa <= oggiStr) && (!pc.validitaA || pc.validitaA >= oggiStr);
   }
 
   return (
@@ -979,18 +1126,16 @@ function CondominioCard({ c, tutti_condomini, onEditCondominio, onReload, onDele
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontWeight: 700, fontSize: 15 }}>{c.nome}</span>
               {c.virtuale && <Badge label="virtuale" color="gray" />}
+              {c.codice && <span style={{ fontSize: 11, color: "var(--text2)" }}>[{c.codice}]</span>}
             </div>
             <p style={{ fontSize: 12, color: "var(--text2)", margin: 0 }}>
               {c.nImmobili ?? 0} immobile{c.nImmobili !== 1 ? "i" : ""}
               {c.indirizzo && ` · ${c.indirizzo}`}
+              {c.millesimitotali && c.millesimitotali !== 1000 && ` · ‰ tot: ${c.millesimitotali}`}
             </p>
           </div>
         </button>
         <div style={{ display: "flex", gap: 4 }}>
-          <Btn size="sm" variant="ghost" title="Aggiungi immobile"
-               onClick={() => { setEditing(null); setOpen(true); setShowForm(true); }}>
-            <i className="ti ti-plus" />
-          </Btn>
           <Btn size="sm" variant="ghost" title="Modifica condominio"
                onClick={() => onEditCondominio(c)}>
             <i className="ti ti-pencil" />
@@ -1002,43 +1147,144 @@ function CondominioCard({ c, tutti_condomini, onEditCondominio, onReload, onDele
         </div>
       </div>
 
-      {/* Lista immobili espansa */}
+      {/* Sezione espansa — sub-tab Immobili / Persone */}
       {open && (
-        <div style={{ borderTop: "1px solid var(--border)", padding: "10px 16px 14px" }}>
-          {loading && (
-            <div style={{ textAlign: "center", padding: 20, color: "var(--text2)" }}>
-              <i className="ti ti-loader-2 ti-spin" />
-            </div>
-          )}
-          {!loading && immobili?.length === 0 && (
-            <p style={{ fontSize: 13, color: "var(--text2)", textAlign: "center", padding: "12px 0" }}>
-              Nessun immobile. <button onClick={() => setShowForm(true)}
-                style={{ background: "none", border: "none", color: "var(--accent)",
-                         cursor: "pointer", fontSize: 13, padding: 0 }}>
-                Creane uno ›
+        <div style={{ borderTop: "1px solid var(--border)" }}>
+          {/* Mini sub-tab */}
+          <div style={{ display: "flex", gap: 0, borderBottom: "1px solid var(--border)" }}>
+            {[
+              { id: "immobili", icon: "ti-building",      label: "Immobili" },
+              { id: "persone",  icon: "ti-users",          label: "Persone"  },
+            ].map(t => (
+              <button key={t.id} onClick={() => setSubTab(t.id)} style={{
+                padding: "8px 16px", border: "none", background: "none", cursor: "pointer",
+                fontSize: 12, display: "flex", alignItems: "center", gap: 6,
+                color: subTab === t.id ? "var(--accent)" : "var(--text2)",
+                fontWeight: subTab === t.id ? 700 : 400,
+                borderBottom: subTab === t.id ? "2px solid var(--accent)" : "2px solid transparent",
+                marginBottom: -1,
+              }}>
+                <i className={`ti ${t.icon}`} style={{ fontSize: 13 }} />
+                {t.label}
               </button>
-            </p>
-          )}
-          {immobili && immobili.length > 0 && (
-            <div style={{ display: "grid", gap: 6 }}>
-              {immobili.map(im => (
-                <ImmobileCard
-                  key={im.id}
-                  im={im}
-                  condomini={tutti_condomini}
-                  showCondominio={false}
-                  onEdit={() => openEdit(im)}
-                  onDetail={() => setSelected(im)}
-                  onDeleted={() => { loadImmobili(); onReload(); }}
-                  onMoved={() => { loadImmobili(); onReload(); }}
-                />
-              ))}
-            </div>
-          )}
+            ))}
+            <span style={{ flex: 1 }} />
+            {subTab === "immobili" && (
+              <Btn size="sm" variant="ghost" style={{ margin: "4px 8px" }}
+                   onClick={() => { setEditing(null); setShowForm(true); }}>
+                <i className="ti ti-plus" /> Immobile
+              </Btn>
+            )}
+            {subTab === "persone" && (
+              <Btn size="sm" variant="ghost" style={{ margin: "4px 8px" }}
+                   onClick={() => setEditPC(false)}>
+                <i className="ti ti-plus" /> Persona
+              </Btn>
+            )}
+          </div>
+
+          <div style={{ padding: "10px 16px 14px" }}>
+            {/* ── IMMOBILI ── */}
+            {subTab === "immobili" && (
+              <>
+                {loadingImm && (
+                  <div style={{ textAlign: "center", padding: 20, color: "var(--text2)" }}>
+                    <i className="ti ti-loader-2 ti-spin" />
+                  </div>
+                )}
+                {!loadingImm && immobili?.length === 0 && (
+                  <p style={{ fontSize: 13, color: "var(--text2)", textAlign: "center", padding: "12px 0" }}>
+                    Nessun immobile. <button onClick={() => setShowForm(true)}
+                      style={{ background: "none", border: "none", color: "var(--accent)",
+                               cursor: "pointer", fontSize: 13, padding: 0 }}>
+                      Creane uno ›
+                    </button>
+                  </p>
+                )}
+                {immobili && immobili.length > 0 && (
+                  <div style={{ display: "grid", gap: 6 }}>
+                    {immobili.map(im => (
+                      <ImmobileCard
+                        key={im.id}
+                        im={im}
+                        condomini={tutti_condomini}
+                        showCondominio={false}
+                        onEdit={() => openEdit(im)}
+                        onDetail={() => setSelected(im)}
+                        onDeleted={() => { loadImmobili(); onReload(); }}
+                        onMoved={() => { loadImmobili(); onReload(); }}
+                      />
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* ── PERSONE ── */}
+            {subTab === "persone" && (
+              <>
+                {loadingPC && (
+                  <div style={{ textAlign: "center", padding: 20, color: "var(--text2)" }}>
+                    <i className="ti ti-loader-2 ti-spin" />
+                  </div>
+                )}
+                {!loadingPC && personePC?.length === 0 && (
+                  <p style={{ fontSize: 13, color: "var(--text2)", textAlign: "center", padding: "12px 0" }}>
+                    Nessuna persona associata. <button onClick={() => setEditPC(false)}
+                      style={{ background: "none", border: "none", color: "var(--accent)",
+                               cursor: "pointer", fontSize: 13, padding: 0 }}>
+                      Associane una ›
+                    </button>
+                  </p>
+                )}
+                {personePC && personePC.length > 0 && (
+                  <div style={{ display: "grid", gap: 6, marginBottom: 4 }}>
+                    {personePC.map(pc => {
+                      const attivo = isAttivoPC(pc);
+                      const info   = RUOLO_PC_INFO[pc.ruolo] || { label: pc.ruolo, color: "gray" };
+                      const nome   = [pc.personaCognome, pc.personaNome].filter(Boolean).join(" ") || pc.personaId;
+                      return (
+                        <div key={pc.id} style={{
+                          display: "grid", gridTemplateColumns: "1fr auto",
+                          gap: 10, alignItems: "center", padding: "9px 12px",
+                          background: "var(--bg3)", borderRadius: 8,
+                          opacity: attivo ? 1 : 0.55,
+                          border: `1px solid ${attivo ? "var(--border)" : "rgba(255,255,255,0.05)"}`,
+                        }}>
+                          <div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2, flexWrap: "wrap" }}>
+                              <Badge label={info.label} color={info.color} />
+                              {!attivo && <Badge label="Scaduto" color="gray" />}
+                              <span style={{ fontSize: 13, fontWeight: 600 }}>{nome}</span>
+                            </div>
+                            <p style={{ fontSize: 11, color: "var(--text2)", margin: 0 }}>
+                              {pc.validitaDa && `dal ${pc.validitaDa}`}
+                              {pc.validitaA  && ` al ${pc.validitaA}`}
+                              {pc.note && ` · ${pc.note}`}
+                            </p>
+                          </div>
+                          <div style={{ display: "flex", gap: 4 }}>
+                            <Btn size="sm" variant="ghost" title="Modifica"
+                                 onClick={() => setEditPC(pc)}>
+                              <i className="ti ti-pencil" />
+                            </Btn>
+                            <Btn size="sm" variant="ghost" title="Rimuovi"
+                                 onClick={() => setDelPCId(pc.id)}>
+                              <i className="ti ti-trash" style={{ color: "var(--red)" }} />
+                            </Btn>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
       )}
 
-      {/* Modali */}
+      {/* Modali immobili */}
       {selected && (
         <ImmobileDettaglio
           immobile={selected}
@@ -1058,6 +1304,33 @@ function CondominioCard({ c, tutti_condomini, onEditCondominio, onReload, onDele
         />
       )}
 
+      {/* Modali persona-condominio */}
+      {editPC !== null && (
+        <PersonaCondominioModal
+          initial={editPC || undefined}
+          condominioId={c.id}
+          onSave={handleSavePC}
+          onClose={() => setEditPC(null)}
+        />
+      )}
+      {delPCId && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
+                      display: "flex", alignItems: "center", justifyContent: "center", zIndex: 500 }}>
+          <div style={{ background: "var(--bg2)", border: "1px solid var(--red)", borderRadius: 12,
+                        padding: 24, maxWidth: 360, width: "100%" }}>
+            <p style={{ marginBottom: 20, fontSize: 14 }}>Rimuovere questa persona dal condominio?</p>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <Btn variant="ghost" onClick={() => setDelPCId(null)}>Annulla</Btn>
+              <Btn variant="danger" disabled={deletingPC}
+                   onClick={() => handleDelPC(delPCId)}>
+                {deletingPC ? "Rimuovo…" : <><i className="ti ti-trash" /> Rimuovi</>}
+              </Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modale conferma elimina condominio */}
       {confirmDel && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
                       display: "flex", alignItems: "center", justifyContent: "center", zIndex: 500 }}>
