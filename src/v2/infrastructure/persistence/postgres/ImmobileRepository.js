@@ -52,33 +52,55 @@ export function makeImmobileRepository(pool) {
     async create(dati) {
       const im = new Immobile(dati);
       const rows = await q(`
-        INSERT INTO v2.immobile (condominio_id, nome, via, citta, cap, note)
-        VALUES ($1,$2,$3,$4,$5,$6)
+        INSERT INTO v2.immobile
+          (condominio_id, nome, codice, via, citta, cap,
+           superficie, percentuale_condominio, millesimi_condominio,
+           note, validita_da, validita_a)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
         RETURNING *
-      `, [im.condominioId, im.nome, im.via, im.citta, im.cap, im.note]);
+      `, [
+        im.condominioId, im.nome, im.codice,
+        im.via, im.citta, im.cap,
+        im.superficie, im.percentualeCondominio, im.millesimiCondominio,
+        im.note, im.validitaDa, im.validitaA,
+      ]);
       return this.findById(rows[0].id);
     },
 
     async update(id, dati) {
       const rows = await q(`
         UPDATE v2.immobile
-        SET nome          = COALESCE($1, nome),
-            via           = $2,
-            citta         = $3,
-            cap           = $4,
-            note          = $5,
-            attivo        = COALESCE($6, attivo),
-            condominio_id = COALESCE($7, condominio_id)
-        WHERE id = $8
+        SET nome                    = COALESCE($1,  nome),
+            codice                  = $2,
+            via                     = $3,
+            citta                   = $4,
+            cap                     = $5,
+            superficie              = $6,
+            percentuale_condominio  = $7,
+            millesimi_condominio    = $8,
+            note                    = $9,
+            validita_da             = $10,
+            validita_a              = $11,
+            attivo                  = COALESCE($12, attivo),
+            condominio_id           = COALESCE($13, condominio_id)
+        WHERE id = $14
         RETURNING *
       `, [
-        dati.nome?.trim()  || null,
-        dati.via?.trim()   || null,
-        dati.citta?.trim() || null,
-        dati.cap?.trim()   || null,
-        dati.note?.trim()  || null,
+        dati.nome?.trim()     || null,
+        dati.codice?.trim()   || null,
+        dati.via?.trim()      || null,
+        dati.citta?.trim()    || null,
+        dati.cap?.trim()      || null,
+        dati.superficie        != null ? Number(dati.superficie)              : null,
+        dati.percentualeCondominio != null ? Number(dati.percentualeCondominio) :
+          dati.percentuale_condominio != null ? Number(dati.percentuale_condominio) : null,
+        dati.millesimiCondominio != null ? Number(dati.millesimiCondominio) :
+          dati.millesimi_condominio != null ? Number(dati.millesimi_condominio) : null,
+        dati.note?.trim()     || null,
+        dati.validitaDa || dati.validita_da || null,
+        dati.validitaA  || dati.validita_a  || null,
         dati.attivo ?? null,
-        dati.condominioId  || null,
+        dati.condominioId || dati.condominio_id || null,
         id,
       ]);
       if (!rows[0]) throw new NotFoundError("Immobile", id);

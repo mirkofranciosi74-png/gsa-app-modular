@@ -9,12 +9,13 @@ import pool from "../../shared/db/pool.js";
 import { requireAuth } from "../shared/authMiddleware.js";
 
 // ── Repository factories ────────────────────────────────────────────────────
-import { makePersonaRepository }       from "../infrastructure/persistence/postgres/PersonaRepository.js";
-import { makeCondominioRepository }    from "../infrastructure/persistence/postgres/CondominioRepository.js";
-import { makeImmobileRepository }      from "../infrastructure/persistence/postgres/ImmobileRepository.js";
-import { makeRuoloPersonaRepository }  from "../infrastructure/persistence/postgres/RuoloPersonaRepository.js";
-import { makeFattoEconomicoRepository }from "../infrastructure/persistence/postgres/FattoEconomicoRepository.js";
-import { makeRegolaRipartoRepository } from "../infrastructure/persistence/postgres/RegolaRipartoRepository.js";
+import { makePersonaRepository }            from "../infrastructure/persistence/postgres/PersonaRepository.js";
+import { makeCondominioRepository }         from "../infrastructure/persistence/postgres/CondominioRepository.js";
+import { makeImmobileRepository }           from "../infrastructure/persistence/postgres/ImmobileRepository.js";
+import { makeRuoloPersonaRepository }       from "../infrastructure/persistence/postgres/RuoloPersonaRepository.js";
+import { makeFattoEconomicoRepository }     from "../infrastructure/persistence/postgres/FattoEconomicoRepository.js";
+import { makeRegolaRipartoRepository }      from "../infrastructure/persistence/postgres/RegolaRipartoRepository.js";
+import { makePersonaCondominioRepository }  from "../infrastructure/persistence/postgres/PersonaCondominioRepository.js";
 
 // ── Service factories ───────────────────────────────────────────────────────
 import { makePersonaService }   from "../application/anagrafica/PersonaService.js";
@@ -31,16 +32,17 @@ import { makeFattoRoutes }      from "./economia/fattoRoutes.js";
 import { makeRipartoRoutes }    from "./riparto/ripartoRoutes.js";
 
 // ── Wire repositories ───────────────────────────────────────────────────────
-const personaRepo      = makePersonaRepository(pool);
-const condominioRepo   = makeCondominioRepository(pool);
-const immobileRepo     = makeImmobileRepository(pool);
-const ruoloRepo        = makeRuoloPersonaRepository(pool);
-const fattoRepo        = makeFattoEconomicoRepository(pool);
-const regolaRepo       = makeRegolaRipartoRepository(pool);
+const personaRepo             = makePersonaRepository(pool);
+const condominioRepo          = makeCondominioRepository(pool);
+const immobileRepo            = makeImmobileRepository(pool);
+const ruoloRepo               = makeRuoloPersonaRepository(pool);
+const fattoRepo               = makeFattoEconomicoRepository(pool);
+const regolaRepo              = makeRegolaRipartoRepository(pool);
+const personaCondominioRepo   = makePersonaCondominioRepository(pool);
 
 // ── Wire services ───────────────────────────────────────────────────────────
 const personaService    = makePersonaService({ personaRepo });
-const patrimonioService = makePatrimonioService({ condominioRepo, immobileRepo, ruoloRepo });
+const patrimonioService = makePatrimonioService({ condominioRepo, immobileRepo, ruoloRepo, personaCondominioRepo });
 const economiaService   = makeEconomiaService({ fattoRepo });
 const ripartoService    = makeRipartoService({ regolaRepo, ruoloRepo });
 

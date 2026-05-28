@@ -97,7 +97,10 @@ function QuadraturaBanner() {
 // ── Modale crea / modifica persona ────────────────────────────────────────────
 function PersonaModal({ initial, onSave, onClose }) {
   const [form, setForm] = useState({
-    nome: "", cognome: "", email: "", telefono: "", indirizzo: "", note: "", attivo: true,
+    tipoPersona: "fisica", nome: "", cognome: "", ragioneSociale: "",
+    codiceFiscale: "", pIva: "", codice: "",
+    email: "", telefono: "", indirizzo: "",
+    validitaDa: "", validitaA: "", note: "", attivo: true,
     ...initial,
   });
   const [saving, setSaving] = useState(false);
@@ -105,9 +108,13 @@ function PersonaModal({ initial, onSave, onClose }) {
 
   const set     = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
   const setBool = k => e => setForm(f => ({ ...f, [k]: e.target.checked }));
+  const isGiuridica = form.tipoPersona === "giuridica";
 
   async function handleSave() {
     if (!form.nome?.trim()) { setErr("Nome obbligatorio"); return; }
+    if (form.validitaA && form.validitaDa && form.validitaA < form.validitaDa) {
+      setErr("Data fine validità deve essere >= data inizio"); return;
+    }
     setSaving(true);
     try { await onSave(form); onClose(); }
     catch (e) { setErr(e.message); setSaving(false); }
@@ -118,7 +125,7 @@ function PersonaModal({ initial, onSave, onClose }) {
       title={initial?.id ? "Modifica Persona" : "Nuova Persona"}
       subtitle={initial?.id ? nomeCompleto(initial) : undefined}
       onClose={onClose}
-      width={500}
+      width={540}
       footer={<>
         <Btn variant="ghost" onClick={onClose}>Annulla</Btn>
         <Btn variant="primary" onClick={handleSave} disabled={saving}>
@@ -129,25 +136,84 @@ function PersonaModal({ initial, onSave, onClose }) {
       <div style={{ display: "grid", gap: 14 }}>
         {err && <p style={{ color: "var(--red)", fontSize: 13, margin: 0 }}>{err}</p>}
 
+        {/* Tipo persona */}
+        <Field label="Tipo *">
+          <select className="inp" value={form.tipoPersona} onChange={set("tipoPersona")}>
+            <option value="fisica">Persona fisica</option>
+            <option value="giuridica">Persona giuridica</option>
+          </select>
+        </Field>
+
+        {/* Anagrafica */}
+        {isGiuridica ? (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10 }}>
+            <Field label="Ragione sociale *">
+              <input className="inp" value={form.ragioneSociale || ""} onChange={set("ragioneSociale")} autoFocus />
+            </Field>
+            <Field label="Codice">
+              <input className="inp" value={form.codice || ""} onChange={set("codice")} style={{ width: 100 }} />
+            </Field>
+          </div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 10 }}>
+            <Field label="Nome *">
+              <input className="inp" value={form.nome} onChange={set("nome")} autoFocus />
+            </Field>
+            <Field label="Cognome">
+              <input className="inp" value={form.cognome || ""} onChange={set("cognome")} />
+            </Field>
+            <Field label="Codice">
+              <input className="inp" value={form.codice || ""} onChange={set("codice")} style={{ width: 80 }} />
+            </Field>
+          </div>
+        )}
+
+        {/* CF / P.IVA */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Field label="Nome *">
-            <input className="inp" value={form.nome} onChange={set("nome")} autoFocus />
+          <Field label={isGiuridica ? "P.IVA" : "Codice fiscale"}>
+            <input className="inp"
+                   value={isGiuridica ? (form.pIva || "") : (form.codiceFiscale || "")}
+                   onChange={isGiuridica ? set("pIva") : set("codiceFiscale")}
+                   placeholder={isGiuridica ? "12345678901" : "RSSMRA80A01H501U"} />
           </Field>
-          <Field label="Cognome">
-            <input className="inp" value={form.cognome || ""} onChange={set("cognome")} />
-          </Field>
+          {isGiuridica && (
+            <Field label="Codice fiscale (ente)">
+              <input className="inp" value={form.codiceFiscale || ""} onChange={set("codiceFiscale")} />
+            </Field>
+          )}
+          {!isGiuridica && (
+            <Field label="Telefono">
+              <input className="inp" value={form.telefono || ""} onChange={set("telefono")} />
+            </Field>
+          )}
         </div>
+
+        {/* Contatti */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Field label="Email">
             <input className="inp" type="email" value={form.email || ""} onChange={set("email")} />
           </Field>
-          <Field label="Telefono">
-            <input className="inp" value={form.telefono || ""} onChange={set("telefono")} />
-          </Field>
+          {isGiuridica && (
+            <Field label="Telefono">
+              <input className="inp" value={form.telefono || ""} onChange={set("telefono")} />
+            </Field>
+          )}
         </div>
+
         <Field label="Indirizzo">
           <input className="inp" value={form.indirizzo || ""} onChange={set("indirizzo")} />
         </Field>
+
+        {/* Validità */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Field label="Validità da">
+            <input className="inp" type="date" value={form.validitaDa || ""} onChange={set("validitaDa")} />
+          </Field>
+          <Field label="Validità a">
+            <input className="inp" type="date" value={form.validitaA || ""} onChange={set("validitaA")} />
+          </Field>
+        </div>
+
         <Field label="Note">
           <textarea className="inp" rows={2} value={form.note || ""} onChange={set("note")}
                     style={{ resize: "vertical" }} />

@@ -47,13 +47,20 @@ function SubTabs({ active, onChange }) {
 
 // ── Modale crea/modifica Condominio ───────────────────────────────────────────
 function CondominioModal({ initial, onSave, onClose }) {
-  const [form, setForm] = useState({ nome: "", indirizzo: "", ...initial });
+  const [form, setForm] = useState({
+    nome: "", codice: "", indirizzo: "", citta: "", cap: "",
+    millesimitotali: 1000, note: "", validitaDa: "", validitaA: "",
+    ...initial,
+  });
   const [saving, setSaving] = useState(false);
   const [err,    setErr]    = useState(null);
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
 
   async function handleSave() {
     if (!form.nome?.trim()) { setErr("Nome obbligatorio"); return; }
+    if (form.validitaA && form.validitaDa && form.validitaA < form.validitaDa) {
+      setErr("Data fine deve essere >= data inizio"); return;
+    }
     setSaving(true);
     try { await onSave(form); onClose(); }
     catch (e) { setErr(e.message); setSaving(false); }
@@ -61,7 +68,7 @@ function CondominioModal({ initial, onSave, onClose }) {
 
   return (
     <Modal title={initial?.id ? "Modifica Condominio" : "Nuovo Condominio"}
-           onClose={onClose} width={440}
+           onClose={onClose} width={500}
            footer={<>
              <Btn variant="ghost" onClick={onClose}>Annulla</Btn>
              <Btn variant="primary" onClick={handleSave} disabled={saving}>
@@ -70,11 +77,40 @@ function CondominioModal({ initial, onSave, onClose }) {
            </>}>
       <div style={{ display: "grid", gap: 14 }}>
         {err && <p style={{ color: "var(--red)", fontSize: 13, margin: 0 }}>{err}</p>}
-        <Field label="Nome *">
-          <input className="inp" value={form.nome} onChange={set("nome")} autoFocus />
-        </Field>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10 }}>
+          <Field label="Nome *">
+            <input className="inp" value={form.nome} onChange={set("nome")} autoFocus />
+          </Field>
+          <Field label="Codice">
+            <input className="inp" value={form.codice || ""} onChange={set("codice")} style={{ width: 100 }} />
+          </Field>
+        </div>
         <Field label="Indirizzo">
           <input className="inp" value={form.indirizzo || ""} onChange={set("indirizzo")} />
+        </Field>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10 }}>
+          <Field label="Città">
+            <input className="inp" value={form.citta || ""} onChange={set("citta")} />
+          </Field>
+          <Field label="CAP">
+            <input className="inp" value={form.cap || ""} onChange={set("cap")} style={{ width: 80 }} />
+          </Field>
+        </div>
+        <Field label="Millesimi totali" hint="default 1000">
+          <input className="inp" type="number" min={1} step={0.001}
+                 value={form.millesimitotali || 1000} onChange={set("millesimitotali")} />
+        </Field>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <Field label="Validità da">
+            <input className="inp" type="date" value={form.validitaDa || ""} onChange={set("validitaDa")} />
+          </Field>
+          <Field label="Validità a">
+            <input className="inp" type="date" value={form.validitaA || ""} onChange={set("validitaA")} />
+          </Field>
+        </div>
+        <Field label="Note">
+          <textarea className="inp" rows={2} value={form.note || ""} onChange={set("note")}
+                    style={{ resize: "vertical" }} />
         </Field>
       </div>
     </Modal>
@@ -138,7 +174,9 @@ function RiassegnaModal({ immobile, condomini, onSave, onClose }) {
 // ── Modale crea/modifica Immobile ─────────────────────────────────────────────
 function ImmobileModal({ initial, condomini, onSave, onClose }) {
   const [form, setForm] = useState({
-    nome: "", via: "", citta: "", cap: "", note: "",
+    nome: "", codice: "", via: "", citta: "", cap: "",
+    superficie: "", percentualeCondominio: "", millesimiCondominio: "",
+    note: "", validitaDa: "", validitaA: "",
     ...initial,
     condominioId: initial?.condominioId || "",
   });
@@ -147,8 +185,11 @@ function ImmobileModal({ initial, condomini, onSave, onClose }) {
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
 
   async function handleSave() {
-    if (!form.nome?.trim())     { setErr("Nome obbligatorio"); return; }
-    if (!form.condominioId)     { setErr("Condominio obbligatorio"); return; }
+    if (!form.nome?.trim()) { setErr("Nome obbligatorio"); return; }
+    if (!form.condominioId) { setErr("Condominio obbligatorio"); return; }
+    if (form.validitaA && form.validitaDa && form.validitaA < form.validitaDa) {
+      setErr("Data fine deve essere >= data inizio"); return;
+    }
     setSaving(true);
     try { await onSave(form); onClose(); }
     catch (e) { setErr(e.message); setSaving(false); }
@@ -156,7 +197,7 @@ function ImmobileModal({ initial, condomini, onSave, onClose }) {
 
   return (
     <Modal title={initial?.id ? "Modifica Immobile" : "Nuovo Immobile"}
-           onClose={onClose} width={500}
+           onClose={onClose} width={540}
            footer={<>
              <Btn variant="ghost" onClick={onClose}>Annulla</Btn>
              <Btn variant="primary" onClick={handleSave} disabled={saving}>
@@ -165,15 +206,18 @@ function ImmobileModal({ initial, condomini, onSave, onClose }) {
            </>}>
       <div style={{ display: "grid", gap: 14 }}>
         {err && <p style={{ color: "var(--red)", fontSize: 13, margin: 0 }}>{err}</p>}
-        <Field label="Nome *">
-          <input className="inp" value={form.nome} onChange={set("nome")} autoFocus />
-        </Field>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10 }}>
+          <Field label="Nome *">
+            <input className="inp" value={form.nome} onChange={set("nome")} autoFocus />
+          </Field>
+          <Field label="Codice">
+            <input className="inp" value={form.codice || ""} onChange={set("codice")} style={{ width: 100 }} />
+          </Field>
+        </div>
         <Field label="Condominio *">
           <select className="inp" value={form.condominioId} onChange={set("condominioId")}>
             <option value="">— Seleziona —</option>
-            {condomini.map(c => (
-              <option key={c.id} value={c.id}>{c.nome}</option>
-            ))}
+            {condomini.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
           </select>
         </Field>
         <Field label="Via / Indirizzo">
@@ -184,8 +228,31 @@ function ImmobileModal({ initial, condomini, onSave, onClose }) {
             <input className="inp" value={form.citta || ""} onChange={set("citta")} />
           </Field>
           <Field label="CAP">
-            <input className="inp" value={form.cap || ""} onChange={set("cap")}
-                   style={{ width: 90 }} />
+            <input className="inp" value={form.cap || ""} onChange={set("cap")} style={{ width: 90 }} />
+          </Field>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+          <Field label="Superficie (m²)">
+            <input className="inp" type="number" min={0} step={0.01}
+                   value={form.superficie || ""} onChange={set("superficie")} />
+          </Field>
+          <Field label="% Condominio">
+            <input className="inp" type="number" min={0} max={100} step={0.0001}
+                   value={form.percentualeCondominio || ""} onChange={set("percentualeCondominio")}
+                   placeholder="es. 12.5" />
+          </Field>
+          <Field label="Millesimi">
+            <input className="inp" type="number" min={0} step={0.001}
+                   value={form.millesimiCondominio || ""} onChange={set("millesimiCondominio")}
+                   placeholder="es. 125" />
+          </Field>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <Field label="Validità da">
+            <input className="inp" type="date" value={form.validitaDa || ""} onChange={set("validitaDa")} />
+          </Field>
+          <Field label="Validità a">
+            <input className="inp" type="date" value={form.validitaA || ""} onChange={set("validitaA")} />
           </Field>
         </div>
         <Field label="Note">

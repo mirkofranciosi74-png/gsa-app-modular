@@ -1,13 +1,14 @@
 /**
- * Use cases per il modulo Patrimonio (Condominio + Immobile + RuoloPersona).
+ * Use cases per il modulo Patrimonio.
  *
  * @param {{
- *   condominioRepo: any,
- *   immobileRepo:   any,
- *   ruoloRepo:      any,
+ *   condominioRepo:        any,
+ *   immobileRepo:          any,
+ *   ruoloRepo:             any,
+ *   personaCondominioRepo: any,
  * }} deps
  */
-export function makePatrimonioService({ condominioRepo, immobileRepo, ruoloRepo }) {
+export function makePatrimonioService({ condominioRepo, immobileRepo, ruoloRepo, personaCondominioRepo }) {
   return {
     // ── Condominio ─────────────────────────────────────────────────────────────
     listaCondomini() {
@@ -81,6 +82,23 @@ export function makePatrimonioService({ condominioRepo, immobileRepo, ruoloRepo 
     },
     verificaQuote(immobileId, da, a) {
       return ruoloRepo.verificaQuote(immobileId, da, a);
+    },
+
+    // ── PersonaCondominio ──────────────────────────────────────────────────────
+    personeCondominio(condominioId, filtri) {
+      return personaCondominioRepo.listByCondominio(condominioId, filtri);
+    },
+    condominiBypersona(personaId) {
+      return personaCondominioRepo.listByPersona(personaId);
+    },
+    associaPersonaCondominio(dati) {
+      return personaCondominioRepo.create(dati);
+    },
+    aggiornaAssociazioneCondominio(id, dati) {
+      return personaCondominioRepo.update(id, dati);
+    },
+    rimuoviAssociazioneCondominio(id) {
+      return personaCondominioRepo.remove(id);
     },
   };
 }

@@ -46,12 +46,21 @@ export const personeV2 = {
 
 // ── Patrimonio — Condomini ─────────────────────────────────────────────────────
 export const condominiV2 = {
-  lista:       ()                 => get("/condomini"),
-  trovaPerId:  id                 => get(`/condomini/${id}`),
-  crea:        dati               => post("/condomini", dati),
-  aggiorna:    (id, dati)         => put(`/condomini/${id}`, dati),
-  elimina:     id                 => del(`/condomini/${id}`),
-  consolida:   (id, sourceIds)    => post(`/condomini/${id}/consolida`, { sourceIds }),
+  lista:              ()                 => get("/condomini"),
+  trovaPerId:         id                 => get(`/condomini/${id}`),
+  crea:               dati               => post("/condomini", dati),
+  aggiorna:           (id, dati)         => put(`/condomini/${id}`, dati),
+  elimina:            id                 => del(`/condomini/${id}`),
+  consolida:          (id, sourceIds)    => post(`/condomini/${id}/consolida`, { sourceIds }),
+  // Persone associate
+  persone:            (id, filtri = {})  => {
+    const p = new URLSearchParams();
+    if (filtri.dataRif) p.set("dataRif", filtri.dataRif);
+    return get(`/condomini/${id}/persone${p.toString() ? "?" + p : ""}`);
+  },
+  associaPersona:     (id, dati)         => post(`/condomini/${id}/persone`, dati),
+  aggiornaAssociazione:(id, assId, dati) => put(`/condomini/${id}/persone/${assId}`, dati),
+  rimuoviAssociazione:(id, assId)        => del(`/condomini/${id}/persone/${assId}`),
 };
 
 // ── Patrimonio — Immobili ──────────────────────────────────────────────────────

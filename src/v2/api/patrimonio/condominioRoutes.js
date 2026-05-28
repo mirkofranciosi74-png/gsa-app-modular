@@ -37,5 +37,32 @@ export function makeCondominioRoutes({ patrimonioService }) {
     res.status(204).end();
   }));
 
+  // ── Persone associate al condominio ─────────────────────────────────────────
+  router.get("/:id/persone", h(async (req, res) =>
+    res.json(
+      (await patrimonioService.personeCondominio(req.params.id, {
+        dataRif: req.query.dataRif,
+      })).map(pc => pc.toJSON())
+    )
+  ));
+
+  router.post("/:id/persone", requireRole("admin"), h(async (req, res) => {
+    const pc = await patrimonioService.associaPersonaCondominio({
+      ...req.body,
+      condominioId: req.params.id,
+    });
+    res.status(201).json(pc.toJSON());
+  }));
+
+  router.put("/:id/persone/:assId", requireRole("admin"), h(async (req, res) => {
+    const pc = await patrimonioService.aggiornaAssociazioneCondominio(req.params.assId, req.body);
+    res.json(pc.toJSON());
+  }));
+
+  router.delete("/:id/persone/:assId", requireRole("admin"), h(async (req, res) => {
+    await patrimonioService.rimuoviAssociazioneCondominio(req.params.assId);
+    res.status(204).end();
+  }));
+
   return router;
 }

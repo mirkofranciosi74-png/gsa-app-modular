@@ -25,9 +25,12 @@ export function makePersonaRepository(pool) {
   }
 
   return {
-    async findAll({ attivo } = {}) {
-      const where = attivo !== undefined ? "WHERE p.attivo = $1" : "";
-      const params = attivo !== undefined ? [attivo] : [];
+    async findAll({ attivo, tipoPersona } = {}) {
+      const conds = [];
+      const params = [];
+      if (attivo !== undefined)    { params.push(attivo);      conds.push(`p.attivo = $${params.length}`); }
+      if (tipoPersona !== undefined){ params.push(tipoPersona); conds.push(`p.tipo_persona = $${params.length}`); }
+      const where = conds.length ? "WHERE " + conds.join(" AND ") : "";
       const rows = await q(
         `${BASE_SELECT} ${where} GROUP BY p.id ORDER BY p.cognome NULLS LAST, p.nome`,
         params
@@ -64,8 +67,10 @@ export function makePersonaRepository(pool) {
       const like = `%${term.toLowerCase()}%`;
       const rows = await q(`
         ${BASE_SELECT}
-        WHERE LOWER(p.nome || ' ' || COALESCE(p.cognome,'')) LIKE $1
+        WHERE LOWER(p.nome || ' ' || COALESCE(p.cognome,'') || ' ' || COALESCE(p.ragione_sociale,'')) LIKE $1
            OR LOWER(COALESCE(p.email,'')) LIKE $1
+           OR LOWER(COALESCE(p.codice_fiscale,'')) LIKE $1
+           OR LOWER(COALESCE(p.codice,'')) LIKE $1
         GROUP BY p.id
         ORDER BY p.cognome NULLS LAST, p.nome
         LIMIT 50
@@ -76,31 +81,53 @@ export function makePersonaRepository(pool) {
     async create(dati) {
       const p = new Persona(dati);
       const rows = await q(`
-        INSERT INTO v2.persona (nome, cognome, email, telefono, indirizzo, note, attivo)
-        VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *
-      `, [p.nome, p.cognome, p.email, p.telefono, p.indirizzo, p.note, p.attivo]);
+        INSERT INTO v2.persona
+          (tipo_persona, nome, cognome, ragione_sociale, codice_fiscale, p_iva,
+           codice, email, telefono, indirizzo, note, validita_da, validita_a, attivo)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+        RETURNING *
+      `, [
+        p.tipoPersona, p.nome, p.cognome, p.ragioneSociale,
+        p.codiceFiscale, p.pIva, p.codice,
+        p.email, p.telefono, p.indirizzo, p.note,
+        p.validitaDa, p.validitaA, p.attivo,
+      ]);
       return Persona.fromRow({ ...rows[0], legacy_refs: [] });
     },
 
     async update(id, dati) {
       const rows = await q(`
         UPDATE v2.persona
-        SET nome      = COALESCE($1, nome),
-            cognome   = $2,
-            email     = $3,
-            telefono  = $4,
-            indirizzo = $5,
-            note      = $6,
-            attivo    = COALESCE($7, attivo)
-        WHERE id = $8
+        SET tipo_persona     = COALESCE($1,  tipo_persona),
+            nome             = COALESCE($2,  nome),
+            cognome          = $3,
+            ragione_sociale  = $4,
+            codice_fiscale   = $5,
+            p_iva            = $6,
+            codice           = $7,
+            email            = $8,
+            telefono         = $9,
+            indirizzo        = $10,
+            note             = $11,
+            validita_da      = $12,
+            validita_a       = $13,
+            attivo           = COALESCE($14, attivo)
+        WHERE id = $15
         RETURNING *
       `, [
+        dati.tipoPersona  || dati.tipo_persona  || null,
         dati.nome?.trim() || null,
-        dati.cognome?.trim() || null,
-        dati.email?.trim()   || null,
-        dati.telefono?.trim()|| null,
-        dati.indirizzo?.trim()|| null,
-        dati.note?.trim()    || null,
+        dati.cognome?.trim()         || null,
+        dati.ragioneSociale?.trim()  || dati.ragione_sociale?.trim() || null,
+        dati.codiceFiscale?.trim()   || dati.codice_fiscale?.trim()  || null,
+        dati.pIva?.trim()            || dati.p_iva?.trim()           || null,
+        dati.codice?.trim()          || null,
+        dati.email?.trim()           || null,
+        dati.telefono?.trim()        || null,
+        dati.indirizzo?.trim()       || null,
+        dati.note?.trim()            || null,
+        dati.validitaDa || dati.validita_da || null,
+        dati.validitaA  || dati.validita_a  || null,
         dati.attivo ?? null,
         id,
       ]);
