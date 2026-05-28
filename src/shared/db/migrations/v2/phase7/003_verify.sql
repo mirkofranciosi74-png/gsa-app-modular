@@ -6,9 +6,9 @@
 SELECT
   (SELECT COUNT(*) FROM regole_riparto)              AS legacy_regole,
   (SELECT COUNT(*) FROM v2.regola_riparto)           AS v2_regole,
-  (SELECT COUNT(*) FROM regole_riparto_esclusi
-    + SELECT COUNT(*) FROM regole_riparto_inclusi
-    + SELECT COUNT(*) FROM regole_riparto_inclusi_prop) AS legacy_dettagli,
+  ((SELECT COUNT(*) FROM regole_riparto_esclusi) +
+   (SELECT COUNT(*) FROM regole_riparto_inclusi) +
+   (SELECT COUNT(*) FROM regole_riparto_inclusi_prop)) AS legacy_dettagli,
   (SELECT COUNT(*) FROM v2.regola_riparto_dettaglio) AS v2_dettagli,
   (SELECT COUNT(*) FROM regole_riparto) =
     (SELECT COUNT(*) FROM v2.regola_riparto) AS regole_ok;

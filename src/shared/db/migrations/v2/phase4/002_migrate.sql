@@ -34,7 +34,7 @@ SELECT
   d.id
 FROM documenti d
 LEFT JOIN v2.immobile i ON i.legacy_id = d.appartamento_id
-WHERE d.importo IS NOT NULL
+WHERE d.importo IS NOT NULL AND d.importo > 0
   AND NOT EXISTS (
     SELECT 1 FROM v2.fatto_economico fe
     WHERE fe.legacy_tipo = 'documento' AND fe.legacy_id = d.id

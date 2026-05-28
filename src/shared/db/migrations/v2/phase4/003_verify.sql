@@ -9,7 +9,7 @@ SELECT
 FROM v2.fatto_economico
 GROUP BY legacy_tipo
 UNION ALL
-SELECT 'LEGACY documenti (con importo)',   COUNT(*) FROM documenti WHERE importo IS NOT NULL
+SELECT 'LEGACY documenti (importo > 0)',   COUNT(*) FROM documenti WHERE importo IS NOT NULL AND importo > 0
 UNION ALL
 SELECT 'LEGACY movimenti',                 COUNT(*) FROM movimenti
 UNION ALL
@@ -53,7 +53,7 @@ SELECT
   'PHASE 4 — FATTO ECONOMICO' AS fase,
   CASE
     WHEN
-      (SELECT COUNT(*) FROM documenti WHERE importo IS NOT NULL) =
+      (SELECT COUNT(*) FROM documenti WHERE importo IS NOT NULL AND importo > 0) =
         (SELECT COUNT(*) FROM v2.fatto_economico WHERE legacy_tipo='documento')
       AND
       (SELECT COUNT(*) FROM movimenti) =
