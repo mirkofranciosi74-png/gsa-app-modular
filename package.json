@@ -7,7 +7,11 @@
     "start": "node src/server.js",
     "dev": "lsof -ti :3001 | xargs kill -9 2>/dev/null; nodemon src/server.js",
     "db:migrate": "node src/shared/db/migrations/run.js",
-    "db:seed": "node src/shared/db/seed.js"
+    "db:migrate:v2": "node src/shared/db/migrations/v2/run.js",
+    "db:migrate:v2:verify": "node src/shared/db/migrations/v2/run.js --verify",
+    "db:migrate:v2:dry": "node src/shared/db/migrations/v2/run.js --dry-run",
+    "db:seed": "node src/shared/db/seed.js",
+    "test:v2": "node --test src/modules/v2/persona/__tests__/persona.test.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
