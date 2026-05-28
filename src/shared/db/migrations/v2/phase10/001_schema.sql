@@ -51,7 +51,13 @@ CREATE INDEX IF NOT EXISTS idx_v2_fe_data_pag
   ON v2.fatto_economico(data_pagamento) WHERE data_pagamento IS NOT NULL;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 2. TIPOLOGIA_ECONOMICA — vista portabile su tipi_spesa
+-- 2. tipi_spesa — aggiunge colonna note (mancante dallo schema base)
+-- ─────────────────────────────────────────────────────────────────────────────
+ALTER TABLE tipi_spesa
+  ADD COLUMN IF NOT EXISTS note TEXT;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 3. TIPOLOGIA_ECONOMICA — vista portabile su tipi_spesa
 --    Mappa la tabella legacy garantendo compatibilità futura.
 --    tipi_spesa.tipo_movimento è già presente da phase9.
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -72,7 +78,7 @@ CREATE OR REPLACE VIEW v2.tipologia_economica AS
   ORDER BY descrizione;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 3. INDICE DEDUP DATI — stesso fornitore + stesso importo + stesso periodo
+-- 4. INDICE DEDUP DATI — stesso fornitore + stesso importo + stesso periodo
 --    Supporta la query di rilevamento duplicati semantici
 -- ─────────────────────────────────────────────────────────────────────────────
 CREATE INDEX IF NOT EXISTS idx_v2_fe_numero_fattura
