@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { personeV2, ruoliV2 } from "../api/apiV2.js";
+import { personeV2, ruoliV2, condominiV2 } from "../api/apiV2.js";
 import { Btn, Badge, Modal, Field } from "../../components/ui.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
 
@@ -14,9 +14,16 @@ const RUOLO_V2 = {
   garante:      { label: "Garante",      color: "yellow" },
   contatto:     { label: "Contatto",     color: "gray"   },
 };
+const RUOLO_PC = {
+  condomino:      { label: "Condomino",      color: "blue"   },
+  amministratore: { label: "Amministratore", color: "purple" },
+  delegato:       { label: "Delegato",       color: "yellow" },
+  altro:          { label: "Altro",          color: "gray"   },
+};
 
 function nomeCompleto(p) {
-  return [p.cognome, p.nome].filter(Boolean).join(" ");
+  if (p.tipoPersona === "giuridica") return p.ragioneSociale || "(senza nome)";
+  return [p.cognome, p.nome].filter(Boolean).join(" ") || "(senza nome)";
 }
 
 // ── Debounce hook ──────────────────────────────────────────────────────────────
@@ -231,22 +238,42 @@ function PersonaModal({ initial, onSave, onClose }) {
 function PersonaDettaglio({ persona, onEdit, onClose }) {
   const [ruoli,    setRuoli]    = useState(null);
   const [errRuoli, setErrRuoli] = useState(null);
+  const [condPC,   setCondPC]   = useState(null);
 
   useEffect(() => {
-    ruoliV2.perPersona(persona.id)
-      .then(setRuoli)
-      .catch(e => setErrRuoli(e.message));
+    ruoliV2.perPersona(persona.id).then(setRuoli).catch(e => setErrRuoli(e.message));
   }, [persona.id]);
 
   const oggi      = new Date().toISOString().slice(0, 10);
   const legacyRef = persona.legacyRefs || [];
+  const isGiuridica = persona.tipoPersona === "giuridica";
+
+  function SectionTitle({ children }) {
+    return (
+      <p style={{ fontSize: 11, color: "var(--text2)", textTransform: "uppercase",
+                  letterSpacing: 0.8, margin: "0 0 10px", fontWeight: 700 }}>
+        {children}
+      </p>
+    );
+  }
+
+  function InfoField({ label, value }) {
+    if (!value) return null;
+    return (
+      <div>
+        <p style={{ fontSize: 11, color: "var(--text2)", margin: "0 0 2px",
+                    textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</p>
+        <p style={{ fontSize: 13, margin: 0 }}>{value}</p>
+      </div>
+    );
+  }
 
   return (
     <Modal
       title={nomeCompleto(persona)}
       subtitle={persona.email || undefined}
       onClose={onClose}
-      width={580}
+      width={600}
       footer={<>
         <Btn variant="ghost" onClick={onClose}>Chiudi</Btn>
         <Btn variant="primary" onClick={onEdit}>
@@ -256,33 +283,40 @@ function PersonaDettaglio({ persona, onEdit, onClose }) {
     >
       <div style={{ display: "grid", gap: 20 }}>
         {/* Dati anagrafici */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          {[
-            ["Email",     persona.email],
-            ["Telefono",  persona.telefono],
-            ["Indirizzo", persona.indirizzo],
-            ["Note",      persona.note],
-          ].filter(([, v]) => v).map(([label, val]) => (
-            <div key={label}>
-              <p style={{ fontSize: 11, color: "var(--text2)", margin: "0 0 2px",
-                          textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</p>
-              <p style={{ fontSize: 13, margin: 0 }}>{val}</p>
+        <div>
+          <SectionTitle>Anagrafica</SectionTitle>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px,1fr))", gap: 10 }}>
+            <div>
+              <p style={{ fontSize: 11, color: "var(--text2)", margin: "0 0 4px",
+                          textTransform: "uppercase", letterSpacing: 0.5 }}>Tipo</p>
+              <Badge label={isGiuridica ? "Giuridica" : "Fisica"}
+                     color={isGiuridica ? "purple" : "blue"} />
             </div>
-          ))}
-          <div>
-            <p style={{ fontSize: 11, color: "var(--text2)", margin: "0 0 4px",
-                        textTransform: "uppercase", letterSpacing: 0.5 }}>Stato</p>
-            <Badge label={persona.attivo ? "Attiva" : "Inattiva"} color={persona.attivo ? "green" : "gray"} />
+            <div>
+              <p style={{ fontSize: 11, color: "var(--text2)", margin: "0 0 4px",
+                          textTransform: "uppercase", letterSpacing: 0.5 }}>Stato</p>
+              <Badge label={persona.attivo ? "Attiva" : "Inattiva"} color={persona.attivo ? "green" : "gray"} />
+            </div>
+            <InfoField label="Codice"        value={persona.codice} />
+            {!isGiuridica && <InfoField label="Codice Fiscale" value={persona.codiceFiscale} />}
+            {isGiuridica  && <InfoField label="Partita IVA"    value={persona.pIva} />}
+            <InfoField label="Email"         value={persona.email} />
+            <InfoField label="Telefono"      value={persona.telefono} />
+            <InfoField label="Indirizzo"     value={persona.indirizzo} />
+            {persona.validitaDa && (
+              <InfoField label="Validità da" value={persona.validitaDa} />
+            )}
+            {persona.validitaA && (
+              <InfoField label="Validità a"  value={persona.validitaA} />
+            )}
+            <InfoField label="Note"          value={persona.note} />
           </div>
         </div>
 
         {/* Legacy refs */}
         {legacyRef.length > 0 && (
           <div>
-            <p style={{ fontSize: 11, color: "var(--text2)", textTransform: "uppercase",
-                        letterSpacing: 0.8, margin: "0 0 8px", fontWeight: 700 }}>
-              Collegamento legacy
-            </p>
+            <SectionTitle>Collegamento legacy</SectionTitle>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {legacyRef.map((ref, i) => {
                 const info = RUOLO_LEGACY[ref.tipo] || { label: ref.tipo, color: "gray" };
@@ -300,12 +334,47 @@ function PersonaDettaglio({ persona, onEdit, onClose }) {
           </div>
         )}
 
+        {/* Associazioni condomini */}
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+            <SectionTitle>Condomini associati (v2)</SectionTitle>
+            {!condPC && (
+              <button onClick={() => {
+                condominiV2.persone && Promise.resolve().then(async () => {
+                  // carica tramite ruoli (filtra condomini unici)
+                  const r = await ruoliV2.perPersona(persona.id);
+                  const unique = [...new Map((r || []).map(x => [x.condominioId, {
+                    id: x.condominioId, nome: x.condominioNome
+                  }])).values()];
+                  setCondPC(unique);
+                });
+              }} style={{ background: "none", border: "none", color: "var(--accent)",
+                          cursor: "pointer", fontSize: 12, padding: 0, marginBottom: 8 }}>
+                Mostra ›
+              </button>
+            )}
+          </div>
+          {condPC && condPC.length === 0 && (
+            <p style={{ color: "var(--text2)", fontSize: 13 }}>Nessun condominio associato tramite ruoli immobile.</p>
+          )}
+          {condPC && condPC.length > 0 && (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {condPC.map(c => (
+                <span key={c.id} style={{
+                  fontSize: 12, padding: "4px 12px", borderRadius: 20,
+                  background: "var(--bg3)", border: "1px solid var(--border)", color: "var(--text)",
+                }}>
+                  <i className="ti ti-building-estate" style={{ marginRight: 5, fontSize: 11, color: "var(--accent)" }} />
+                  {c.nome}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* Ruoli v2 */}
         <div>
-          <p style={{ fontSize: 11, color: "var(--text2)", textTransform: "uppercase",
-                      letterSpacing: 0.8, margin: "0 0 10px", fontWeight: 700 }}>
-            Ruoli immobili (v2)
-          </p>
+          <SectionTitle>Ruoli immobili (v2)</SectionTitle>
           {errRuoli && <p style={{ color: "var(--red)", fontSize: 12 }}>{errRuoli}</p>}
           {!ruoli && !errRuoli && (
             <p style={{ color: "var(--text2)", fontSize: 13 }}>
@@ -371,6 +440,9 @@ function PersonaCard({ persona, onSelect, onEdit }) {
       <div style={{ minWidth: 0 }}>
         {/* Nome + badges */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+          {persona.tipoPersona === "giuridica"
+            ? <i className="ti ti-building" style={{ color: "var(--accent)", fontSize: 13 }} />
+            : <i className="ti ti-user" style={{ color: "var(--text2)", fontSize: 13 }} />}
           <span style={{ fontWeight: 700, fontSize: 15 }}>
             {nomeCompleto(persona) || "—"}
           </span>
@@ -380,10 +452,15 @@ function PersonaCard({ persona, onSelect, onEdit }) {
             return <Badge key={i} label={info.label} color={info.color} />;
           })}
         </div>
-        {/* Contatti */}
+        {/* Contatti / identità */}
         <p style={{ fontSize: 12, color: "var(--text2)", margin: 0,
                     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {[persona.email, persona.telefono].filter(Boolean).join(" · ") || "—"}
+          {[
+            persona.codiceFiscale && `CF: ${persona.codiceFiscale}`,
+            persona.pIva          && `P.IVA: ${persona.pIva}`,
+            persona.email,
+            persona.telefono,
+          ].filter(Boolean).join(" · ") || "—"}
         </p>
         {persona.indirizzo && (
           <p style={{ fontSize: 11, color: "var(--text2)", margin: "3px 0 0",
