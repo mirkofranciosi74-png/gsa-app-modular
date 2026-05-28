@@ -33,6 +33,7 @@ import { adminRouter }                           from "./modules/admin/routes.js
 import { speseProprietariRouter }                from "./modules/spese_proprietari/routes.js";
 import { importazioneRouter }                    from "./modules/importazione/routes.js";
 import { v2Router }                              from "./modules/v2/router.js";
+import { v2DddRouter }                           from "./v2/api/v2Router.js";
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
@@ -72,6 +73,7 @@ app.use("/api/spese-proprietari",   speseProprietariRouter);
 app.use("/api/admin",               adminRouter);
 app.use("/api/importazione",  importazioneRouter);
 app.use("/api/v2",            v2Router);
+app.use("/api/v2ddd",         v2DddRouter);
 
 app.use(errorHandler);
 

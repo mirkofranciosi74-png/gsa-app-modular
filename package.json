@@ -11,7 +11,10 @@
     "db:migrate:v2:verify": "node src/shared/db/migrations/v2/run.js --verify",
     "db:migrate:v2:dry": "node src/shared/db/migrations/v2/run.js --dry-run",
     "db:seed": "node src/shared/db/seed.js",
-    "test:v2": "node --test src/modules/v2/persona/__tests__/persona.test.js"
+    "test:v2": "node --test src/modules/v2/persona/__tests__/persona.test.js",
+    "test:v2ddd": "node --test src/v2/__tests__/domain/Persona.test.js src/v2/__tests__/domain/MotoreRiparto.test.js src/v2/__tests__/application/PersonaService.test.js",
+    "test:v2ddd:domain": "node --test src/v2/__tests__/domain/Persona.test.js src/v2/__tests__/domain/MotoreRiparto.test.js",
+    "test:v2ddd:app": "node --test src/v2/__tests__/application/PersonaService.test.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
