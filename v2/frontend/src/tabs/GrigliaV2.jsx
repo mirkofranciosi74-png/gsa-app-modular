@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { immobiliV2, grigliav2, fattiV2 } from "../api/apiV2.js";
-import { Btn, Field, SectionHeader } from "../../components/ui.jsx";
+import { Btn, Field, SectionHeader } from "../components/ui.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 
 const euro = v => new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" }).format(v ?? 0);

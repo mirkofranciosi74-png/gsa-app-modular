@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { personeV2, ruoliV2, condominiV2 } from "../api/apiV2.js";
-import { Btn, Badge, Modal, Field } from "../../components/ui.jsx";
+import { Btn, Badge, Modal, Field } from "../components/ui.jsx";
 
 // ── Costanti ───────────────────────────────────────────────────────────────────
 const RUOLO_V2 = {

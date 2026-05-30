@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { condominiV2, immobiliV2, ruoliV2, personeV2 } from "../api/apiV2.js";
-import { Btn, Badge, Modal, Field } from "../../components/ui.jsx";
+import { Btn, Badge, Modal, Field } from "../components/ui.jsx";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmtEur = v =>

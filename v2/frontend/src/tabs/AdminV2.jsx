@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect, useCallback } from "react";
 import { adminV2, fattiV2 } from "../api/apiV2.js";
 import { adminApi }         from "../api/apiV2.js";
-import { Btn }              from "../../components/ui.jsx";
+import { Btn }              from "../components/ui.jsx";
 import { TipologieV2 }      from "./TipologieV2.jsx";
 
 const fmtEur  = v => v != null ? Number(v).toLocaleString("it-IT", { style: "currency", currency: "EUR" }) : "—";

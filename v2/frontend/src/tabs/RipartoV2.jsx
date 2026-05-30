@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { ripartoV2, immobiliV2, condominiV2, tipologieV2 } from "../api/apiV2.js";
-import { Btn, Badge, Modal, Field } from "../../components/ui.jsx";
+import { Btn, Badge, Modal, Field } from "../components/ui.jsx";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const oggi = () => new Date().toISOString().slice(0, 10);

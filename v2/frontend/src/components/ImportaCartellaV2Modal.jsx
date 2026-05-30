@@ -4,7 +4,7 @@
  */
 import { useState, useRef } from "react";
 import { archivioV2 as archivioApi } from "../api/apiV2.js";
-import { Modal, Btn, Field } from "../../components/ui.jsx";
+import { Modal, Btn, Field } from "./ui.jsx";
 
 const ENTITA_LABELS = {
   immobile: "Immobile",

@@ -1,0 +1,195 @@
+/* ── Reset & base ──────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #0f172a;   /* sfondo principale — blu notte */
+  --bg2:       #1e293b;   /* sfondo card */
+  --bg3:       #334155;   /* sfondo hover / input */
+  --border:    #475569;   /* bordi */
+  --text:      #f1f5f9;   /* testo principale */
+  --text2:     #94a3b8;   /* testo secondario */
+  --accent:    #3b82f6;   /* blu primario */
+  --accent-h:  #2563eb;   /* blu hover */
+  --green:     #22c55e;
+  --green-bg:  #14532d;
+  --red:       #ef4444;
+  --red-bg:    #7f1d1d;
+  --yellow:    #eab308;
+  --yellow-bg: #713f12;
+  --purple:    #a855f7;
+  --purple-bg: #581c87;
+  --radius:    8px;
+  --shadow:    0 4px 16px rgba(0,0,0,0.4);
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+  line-height: 1.5;
+}
+
+body { min-height: 100vh; }
+
+/* ── Scrollbar ─────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg2); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ── Form elements ─────────────────────────────────────────── */
+input, select, textarea {
+  background:   var(--bg3);
+  border:       2px solid var(--border);
+  border-radius: var(--radius);
+  color:        var(--text);
+  font-size:    14px;
+  padding:      8px 10px;
+  width:        100%;
+  outline:      none;
+  transition:   border-color 0.15s;
+}
+input:focus, select:focus, textarea:focus {
+  border-color: var(--accent);
+  box-shadow:   0 0 0 3px rgba(59,130,246,0.25);
+}
+input::placeholder { color: var(--text2); }
+input[type="checkbox"] {
+  width: 18px; height: 18px; cursor: pointer;
+  accent-color: var(--accent);
+}
+label { font-size: 13px; color: var(--text2); display: block; margin-bottom: 4px; }
+
+/* ── Bottoni ────────────────────────────────────────────────── */
+.btn {
+  display:        inline-flex;
+  align-items:    center;
+  gap:            6px;
+  padding:        8px 16px;
+  border-radius:  var(--radius);
+  border:         2px solid transparent;
+  font-size:      14px;
+  font-weight:    600;
+  cursor:         pointer;
+  transition:     all 0.15s;
+  white-space:    nowrap;
+  text-decoration: none;
+}
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn i { font-size: 16px; }
+
+/* Primario — azione principale */
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.btn-primary:hover:not(:disabled) { background: var(--accent-h); border-color: var(--accent-h); }
+
+/* Successo — conferma / salva */
+.btn-success {
+  background: var(--green);
+  color: #000;
+  border-color: var(--green);
+}
+.btn-success:hover:not(:disabled) { filter: brightness(1.1); }
+
+/* Pericolo — elimina */
+.btn-danger {
+  background: var(--red);
+  color: #fff;
+  border-color: var(--red);
+}
+.btn-danger:hover:not(:disabled) { filter: brightness(1.1); }
+
+/* Secondario — modifica */
+.btn-secondary {
+  background: var(--bg3);
+  color: var(--text);
+  border-color: var(--border);
+}
+.btn-secondary:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+
+/* Ghost — neutro */
+.btn-ghost {
+  background: transparent;
+  color: var(--text2);
+  border-color: transparent;
+}
+.btn-ghost:hover:not(:disabled) { background: var(--bg3); color: var(--text); }
+
+/* Small */
+.btn-sm { padding: 5px 10px; font-size: 12px; }
+.btn-sm i { font-size: 14px; }
+
+/* ── Card ───────────────────────────────────────────────────── */
+.card {
+  background:    var(--bg2);
+  border:        1px solid var(--border);
+  border-radius: var(--radius);
+  padding:       20px;
+}
+
+/* ── Badge ──────────────────────────────────────────────────── */
+.badge {
+  display:       inline-block;
+  padding:       3px 10px;
+  border-radius: 20px;
+  font-size:     11px;
+  font-weight:   600;
+}
+
+/* ── Tabella ────────────────────────────────────────────────── */
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th {
+  background:  var(--bg3);
+  color:       var(--text2);
+  font-weight: 600;
+  font-size:   11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding:     8px 12px;
+  text-align:  left;
+  border-bottom: 2px solid var(--border);
+}
+td {
+  padding:      9px 12px;
+  border-bottom: 1px solid var(--bg3);
+  color:        var(--text);
+  vertical-align: middle;
+}
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: rgba(255,255,255,0.03); }
+
+/* ── Alert ──────────────────────────────────────────────────── */
+.alert {
+  padding:       10px 14px;
+  border-radius: var(--radius);
+  font-size:     13px;
+  display:       flex;
+  align-items:   flex-start;
+  gap:           8px;
+}
+.alert-warn   { background:var(--yellow-bg); color:var(--yellow); border:1px solid var(--yellow); }
+.alert-danger { background:var(--red-bg);    color:var(--red);    border:1px solid var(--red);    }
+.alert-info   { background:#1e3a5f;          color:#60a5fa;       border:1px solid #3b82f6;       }
+.alert-success{ background:var(--green-bg);  color:var(--green);  border:1px solid var(--green);  }
+
+/* ── Utilità ────────────────────────────────────────────────── */
+.text-green  { color: var(--green); }
+.text-red    { color: var(--red); }
+.text-yellow { color: var(--yellow); }
+.text-muted  { color: var(--text2); }
+.text-right  { text-align: right; }
+.fw-600      { font-weight: 600; }
+.fw-700      { font-weight: 700; }
+.mt-1 { margin-top:  8px; }
+.mt-2 { margin-top: 16px; }
+.mb-1 { margin-bottom:  8px; }
+.mb-2 { margin-bottom: 16px; }
+.gap-1 { gap:  8px; }
+.gap-2 { gap: 16px; }
+.flex  { display: flex; align-items: center; }
+.flex-1 { flex: 1; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+
+/* ── Divisore ───────────────────────────────────────────────── */
+.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; }

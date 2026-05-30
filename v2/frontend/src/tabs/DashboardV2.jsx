@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { dashboardV2 } from "../api/apiV2.js";
 import { euro, mesL } from "../utils/formatters.js";
-import { StatoBadge } from "../../components/ui.jsx";
+import { StatoBadge } from "../components/ui.jsx";
 
 const ym2L = ym => (ym ? mesL(ym + "-01") : "");
 

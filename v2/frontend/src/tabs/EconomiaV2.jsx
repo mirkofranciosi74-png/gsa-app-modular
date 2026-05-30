@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { fattiV2, immobiliV2, condominiV2, tipologieV2 } from "../api/apiV2.js";
-import { Btn, Badge, Modal, Field } from "../../components/ui.jsx";
+import { Btn, Badge, Modal, Field } from "../components/ui.jsx";
 import ImportazioneV2Modal from "../components/ImportazioneV2Modal.jsx";
-import { usePdfQueue }   from "../../hooks/usePdfQueue.js";
-import { PdfQueuePanel } from "../../components/PdfQueuePanel.jsx";
+import { usePdfQueue }   from "../hooks/usePdfQueue.js";
+import { PdfQueuePanel } from "../components/PdfQueuePanel.jsx";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const oggi = () => new Date().toISOString().slice(0, 10);

@@ -10,7 +10,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { importazioneV2, fattiV2, tipologieV2 } from "../api/apiV2.js";
-import { Modal, Btn, Field } from "../../components/ui.jsx";
+import { Modal, Btn, Field } from "./ui.jsx";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmtEur = v => (v == null ? "—" : Number(v).toLocaleString("it-IT", { style: "currency", currency: "EUR" }));

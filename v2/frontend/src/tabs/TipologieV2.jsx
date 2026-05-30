@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { tipologieV2 } from "../api/apiV2.js";
-import { Btn, Badge, Modal, Field } from "../../components/ui.jsx";
+import { Btn, Badge, Modal, Field } from "../components/ui.jsx";
 
 // ── Costanti ──────────────────────────────────────────────────────────────────
 const METODI_RIPARTO = ["", "Percentuale", "Parti uguali", "Manuale"];

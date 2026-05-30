@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { reportV2, immobiliV2 } from "../api/apiV2.js";
-import { Btn, Field } from "../../components/ui.jsx";
+import { Btn, Field } from "../components/ui.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 
 const euro   = v => Number(v || 0).toLocaleString("it-IT", { style: "currency", currency: "EUR" });

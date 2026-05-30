@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { authApi } from "../api/apiV2.js";
 import { condominiV2, immobiliV2 } from "../api/apiV2.js";
-import { Btn } from "../../components/ui.jsx";
+import { Btn } from "../components/ui.jsx";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function nomeUtente(u) {

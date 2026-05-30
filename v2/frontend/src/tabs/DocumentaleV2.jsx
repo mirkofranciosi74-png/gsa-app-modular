@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { immobiliV2, personeV2, ruoliV2, archivioV2, archivioTipiV2 } from "../api/apiV2.js";
-import { Btn, Badge, Modal, Field, Confirm } from "../../components/ui.jsx";
-import DocPreview             from "../../components/DocPreview.jsx";
+import { Btn, Badge, Modal, Field, Confirm } from "../components/ui.jsx";
+import DocPreview             from "../components/DocPreview.jsx";
 import ImportaCartellaV2Modal from "../components/ImportaCartellaV2Modal.jsx";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
