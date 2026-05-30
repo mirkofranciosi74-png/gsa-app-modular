@@ -15,29 +15,63 @@ services:
       timeout: 5s
       retries: 10
 
-  backend:
-    build: .
+  # ── Backend v1 (legacy) ───────────────────────────────────────────────────────
+  backend-v1:
+    build:
+      context: .
+      dockerfile: v1/backend/Dockerfile
     restart: unless-stopped
     env_file: .env
     depends_on:
       db:
         condition: service_healthy
     environment:
-      PORT:    3001
+      V1_PORT: 3001
       DB_HOST: db
       DB_PORT: 5432
       DB_SSL:  "false"
+      FRONTEND_URL: ${FRONTEND_V1_URL:-http://localhost}
     volumes:
       - storage_pdf:/app/storage/pdf
       - storage_archivio:/app/storage/archivio
 
-  frontend:
-    build: ./frontend
+  # ── Backend v2 (DDD) ──────────────────────────────────────────────────────────
+  backend-v2:
+    build:
+      context: .
+      dockerfile: v2/backend/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      V2_PORT: 3002
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_SSL:  "false"
+      FRONTEND_V2_URL: ${FRONTEND_V2_URL:-http://localhost:8081}
+    volumes:
+      - storage_pdf:/app/storage/pdf
+      - storage_archivio:/app/storage/archivio
+
+  # ── Frontend v1 ───────────────────────────────────────────────────────────────
+  frontend-v1:
+    build: ./v1/frontend
     restart: unless-stopped
     depends_on:
-      - backend
+      - backend-v1
     ports:
       - "${HTTP_PORT:-80}:80"
+
+  # ── Frontend v2 ───────────────────────────────────────────────────────────────
+  frontend-v2:
+    build: ./v2/frontend
+    restart: unless-stopped
+    depends_on:
+      - backend-v2
+    ports:
+      - "${HTTP_V2_PORT:-8081}:80"
 
 volumes:
   pgdata:

@@ -1,41 +1,16 @@
 {
-  "name": "gsa-backend",
+  "name": "gsa-app",
   "version": "2.0.0",
-  "description": "Gestione Spese Appartamenti — backend Node.js + PostgreSQL",
-  "type": "module",
+  "description": "Gestione Spese Appartamenti — monorepo v1 + v2",
+  "private": true,
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "lsof -ti :3001 | xargs kill -9 2>/dev/null; nodemon src/server.js",
-    "db:migrate": "node src/shared/db/migrations/run.js",
-    "db:migrate:v2": "node src/shared/db/migrations/v2/run.js",
-    "db:migrate:v2:verify": "node src/shared/db/migrations/v2/run.js --verify",
-    "db:migrate:v2:dry": "node src/shared/db/migrations/v2/run.js --dry-run",
-    "db:seed": "node src/shared/db/seed.js",
-    "test:v2": "node --test src/modules/v2/persona/__tests__/persona.test.js",
-    "test:v2ddd": "node --test src/v2/__tests__/domain/Persona.test.js src/v2/__tests__/domain/MotoreRiparto.test.js src/v2/__tests__/application/PersonaService.test.js",
-    "test:v2ddd:domain": "node --test src/v2/__tests__/domain/Persona.test.js src/v2/__tests__/domain/MotoreRiparto.test.js",
-    "test:v2ddd:app": "node --test src/v2/__tests__/application/PersonaService.test.js"
-  },
-  "dependencies": {
-    "bcryptjs": "^3.0.3",
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
-    "exceljs": "^4.4.0",
-    "express": "^4.19.2",
-    "fuse.js": "^7.0.0",
-    "handlebars": "^4.7.8",
-    "jsonwebtoken": "^9.0.3",
-    "jszip": "^3.10.1",
-    "multer": "^2.1.1",
-    "pdf-parse": "^1.1.1",
-    "pdf2pic": "^3.1.3",
-    "pdfkit": "^0.15.0",
-    "pg": "^8.12.0",
-    "tesseract.js": "^5.1.0",
-    "xlsx": "^0.18.5"
-  },
-  "devDependencies": {
-    "nodemon": "^3.1.0"
+    "v1:dev":       "cd v1/backend && node -e \"import('dotenv/config')\" && nodemon server.js",
+    "v2:dev":       "cd v2/backend && node -e \"import('dotenv/config')\" && nodemon server.js",
+    "v1:frontend":  "cd v1/frontend && npm run dev",
+    "v2:frontend":  "cd v2/frontend && npm run dev",
+    "db:migrate:v1": "cd v1/backend && node ../../db/migrations/v1/run.js",
+    "db:migrate:v2": "node db/migrations/v2/run.js",
+    "test:v2":      "cd v2/backend && node --test __tests__/domain/Persona.test.js __tests__/domain/MotoreRiparto.test.js"
   },
   "engines": {
     "node": ">=18.0.0"

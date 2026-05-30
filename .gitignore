@@ -1,12 +1,21 @@
+# Node modules (tutte le versioni)
 node_modules/
 frontend/node_modules/
+v1/frontend/node_modules/
+v2/frontend/node_modules/
+
+# Build output
 dist/
 frontend/dist/
+v1/frontend/dist/
+v2/frontend/dist/
 
-# Environment
+# Environment files
 .env
 .env.local
 frontend/.env
+v1/frontend/.env
+v2/frontend/.env
 
 # Storage (PDF, allegati, archivio) — mai committare file utenti
 storage/pdf/*
@@ -18,5 +27,10 @@ storage/archivio/*
 backups/*
 !backups/.gitkeep
 
+# OS
 .DS_Store
 *.log
+
+# Old directories (migrati a v1/ e v2/)
+src/
+frontend/src/
