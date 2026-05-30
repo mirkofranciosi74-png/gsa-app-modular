@@ -63,7 +63,7 @@ authRouter.get("/google", (req, res) => {
   }
   const params = new URLSearchParams({
     client_id:     process.env.GOOGLE_CLIENT_ID,
-    redirect_uri:  `${process.env.BACKEND_URL || "http://localhost:3001"}/auth/google/callback`,
+    redirect_uri:  `${process.env.BACKEND_V2_URL || "http://localhost:3002"}/auth/google/callback`,
     response_type: "code",
     scope:         "openid email profile",
     access_type:   "offline",
@@ -78,7 +78,7 @@ authRouter.get("/google/callback", h(async (req, res) => {
     return res.redirect(`${FRONTEND}/?auth_error=${encodeURIComponent(error || "cancelled")}`);
   }
 
-  const backendUrl = process.env.BACKEND_URL || "http://localhost:3001";
+  const backendUrl = process.env.BACKEND_V2_URL || "http://localhost:3002";
 
   // Scambio code → token
   const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
@@ -128,7 +128,7 @@ authRouter.get("/apple", (req, res) => {
   }
   const params = new URLSearchParams({
     client_id:     process.env.APPLE_CLIENT_ID,
-    redirect_uri:  `${process.env.BACKEND_URL || "http://localhost:3001"}/auth/apple/callback`,
+    redirect_uri:  `${process.env.BACKEND_V2_URL || "http://localhost:3002"}/auth/apple/callback`,
     response_type: "code id_token",
     scope:         "name email",
     response_mode: "form_post",
