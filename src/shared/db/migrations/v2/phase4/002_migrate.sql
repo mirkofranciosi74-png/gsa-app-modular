@@ -34,7 +34,7 @@ SELECT
   d.id
 FROM documenti d
 LEFT JOIN v2.immobile i ON i.legacy_id = d.appartamento_id
-WHERE d.importo IS NOT NULL AND d.importo > 0
+WHERE d.importo IS NOT NULL AND d.importo >= 0
   AND NOT EXISTS (
     SELECT 1 FROM v2.fatto_economico fe
     WHERE fe.legacy_tipo = 'documento' AND fe.legacy_id = d.id
@@ -71,7 +71,7 @@ WHERE NOT EXISTS (
 INSERT INTO v2.fatto_economico
   (immobile_id, persona_id, tipo, tipo_spesa_id, importo, segno,
    periodo_da, periodo_a, data_evento, descrizione, fornitore, numero_doc,
-   periodicita, stato, legacy_tipo, legacy_id)
+   periodicita, rif_da, rif_a, stato, legacy_tipo, legacy_id)
 SELECT
   i.id                          AS immobile_id,
   pl.persona_id,
@@ -79,13 +79,22 @@ SELECT
   sp.tipo_spesa_id,
   sp.importo,
   1,
-  sp.mese_competenza            AS periodo_da,
-  sp.mese_competenza            AS periodo_a,
+  -- periodo_da: mese di competenza; fallback a data_pagamento per una_tantum senza mese
+  COALESCE(
+    TO_CHAR(sp.mese_competenza::DATE, 'YYYY-MM'),
+    TO_CHAR(sp.data_pagamento,        'YYYY-MM')
+  )                             AS periodo_da,
+  COALESCE(
+    TO_CHAR(sp.mese_competenza::DATE, 'YYYY-MM'),
+    TO_CHAR(sp.data_pagamento,        'YYYY-MM')
+  )                             AS periodo_a,
   sp.data_pagamento             AS data_evento,
   sp.descrizione,
   sp.fornitore,
   sp.numero_fattura,
   sp.periodicita,
+  sp.validita_da                AS rif_da,
+  sp.validita_a                 AS rif_a,
   sp.stato,
   'spesa_proprietario',
   sp.id

@@ -1,8 +1,12 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { fattiV2, immobiliV2, condominiV2, tipologieV2 } from "../api/apiV2.js";
 import { Btn, Badge, Modal, Field } from "../../components/ui.jsx";
+import ImportazioneV2Modal from "../components/ImportazioneV2Modal.jsx";
+import { usePdfQueue }   from "../../hooks/usePdfQueue.js";
+import { PdfQueuePanel } from "../../components/PdfQueuePanel.jsx";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+const oggi = () => new Date().toISOString().slice(0, 10);
 const fmtEur = v =>
   v == null ? "—" : Number(v).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
 
@@ -25,6 +29,12 @@ const PERIODICITA_OPTS = [
   { value: "annuale",      label: "Annuale" },
 ];
 const MESI_STEP = { mensile: 1, bimestrale: 2, trimestrale: 3, semestrale: 6, annuale: 12 };
+const TIPOLOGIA_LABEL = {
+  appartamento: "Appartamento", villa: "Villa", villetta: "Villetta",
+  box: "Box / Garage", posto_auto: "Posto auto", ufficio: "Ufficio",
+  locale_commerciale: "Locale comm.", magazzino: "Magazzino",
+  terreno: "Terreno", cantina: "Cantina", altro: "Altro",
+};
 
 function calcolaRate(periodicita, rifDa, rifA, importo) {
   if (periodicita === "una_tantum" || !rifDa || !rifA) return [];
@@ -68,28 +78,62 @@ function SubTabs({ active, onChange }) {
 // ── Modale Duplicati File ─────────────────────────────────────────────────────
 function DuplicatiModal({ hash, duplicati, onProcedi, onAnnulla }) {
   return (
-    <Modal title="File già presente" onClose={onAnnulla} width={560}
+    <Modal title="⚠ File già presente in archivio" onClose={onAnnulla} width={600}
            footer={<>
-             <Btn variant="ghost" onClick={onAnnulla}>Annulla</Btn>
-             <Btn variant="danger" onClick={onProcedi}>Procedi comunque</Btn>
+             <Btn variant="ghost" onClick={onAnnulla}>Annulla caricamento</Btn>
+             <Btn variant="danger" onClick={onProcedi}>Carica comunque</Btn>
            </>}>
-      <div style={{ display: "grid", gap: 14 }}>
-        <div style={{ padding: "10px 14px", background: "rgba(239,68,68,0.08)",
-                      border: "1px solid var(--red)", borderRadius: 8, fontSize: 12 }}>
-          <i className="ti ti-alert-triangle" style={{ color: "var(--red)", marginRight: 6 }} />
-          Questo file è già presente in {duplicati.length} registro/i. Potrebbe essere un duplicato.
+      <div style={{ display: "grid", gap: 12 }}>
+        <div style={{ padding: "10px 14px", background: "rgba(239,68,68,0.10)",
+                      border: "1px solid var(--red)", borderRadius: 8, fontSize: 13,
+                      display: "flex", gap: 10, alignItems: "center" }}>
+          <i className="ti ti-fingerprint" style={{ color: "var(--red)", fontSize: 20, flexShrink: 0 }} />
+          <div>
+            Questo file è <strong>identico</strong> a un documento già presente.
+            Trovat{duplicati.length > 1 ? "i" : "o"} <strong>{duplicati.length}</strong> oggett{duplicati.length > 1 ? "i" : "o"} con lo stesso contenuto.
+          </div>
         </div>
+
+        <p style={{ fontSize: 11, fontWeight: 600, color: "var(--text2)",
+                    textTransform: "uppercase", letterSpacing: 0.6, margin: 0 }}>
+          Oggetti che contengono il file duplicato:
+        </p>
+
         {duplicati.map((d, i) => (
-          <div key={i} style={{ padding: "10px 14px", background: "var(--bg3)",
-                                border: "1px solid var(--border)", borderRadius: 8, fontSize: 13 }}>
-            <div style={{ fontWeight: 600 }}>{d.nome || d.descrizione || "Fatto"}</div>
-            <p style={{ color: "var(--text2)", fontSize: 12, margin: "4px 0 0" }}>
-              {d.immobileNome || d.condominioNome} · {fmtEur(d.importo)} · {d.fornitore || "—"}
-            </p>
+          <div key={i} style={{ padding: "12px 14px", background: "var(--bg3)",
+                                border: "2px solid var(--red)", borderRadius: 8 }}>
+            {/* Riga principale */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <Badge label={TIPO_LABEL[d.tipo] || d.tipo} color={TIPO_COLOR[d.tipo] || "gray"} />
+              <span style={{ fontWeight: 700, fontSize: 14 }}>
+                {d.nome || d.descrizione || d.fornitore || "Voce senza nome"}
+              </span>
+              <span style={{ marginLeft: "auto", fontWeight: 700, fontSize: 14, color: "var(--accent)" }}>
+                {fmtEur(d.importo)}
+              </span>
+            </div>
+            {/* Dettagli griglia */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px,1fr))",
+                          gap: "4px 16px", fontSize: 12, color: "var(--text2)" }}>
+              {d.immobileNome   && <span><strong>Immobile:</strong> {d.immobileNome}</span>}
+              {d.condominioNome && <span><strong>Condominio:</strong> {d.condominioNome}</span>}
+              {d.fornitore      && <span><strong>Fornitore:</strong> {d.fornitore}</span>}
+              {d.numeroFattura  && <span><strong>N. fattura:</strong> {d.numeroFattura}</span>}
+              {d.periodoDa      && <span><strong>Periodo:</strong> {d.periodoDa}{d.periodoA && d.periodoA !== d.periodoDa ? ` → ${d.periodoA}` : ""}</span>}
+              {(d.dataPagamento || d.dataEvento) && (
+                <span><strong>Data:</strong> {fmtData(d.dataPagamento || d.dataEvento)}</span>
+              )}
+              {d.tipoSpesaDesc  && <span><strong>Tipo spesa:</strong> {d.tipoSpesaDesc}</span>}
+              {d.nomeFile       && <span><strong>File:</strong> {d.nomeFile}</span>}
+              {d.stato && d.stato !== "normale" && (
+                <span><strong>Stato:</strong> <Badge label={d.stato} color={STATO_COLOR[d.stato] || "gray"} /></span>
+              )}
+            </div>
           </div>
         ))}
+
         <p style={{ fontSize: 11, color: "var(--text2)", margin: 0 }}>
-          Hash: <code style={{ fontSize: 10 }}>{hash?.slice(0, 20)}…</code>
+          Hash SHA-256: <code style={{ fontSize: 10, userSelect: "all" }}>{hash}</code>
         </p>
       </div>
     </Modal>
@@ -121,31 +165,106 @@ function DuplicatiDatiAlert({ duplicati, onIgnora }) {
 }
 
 // ── Pannello PDF preview + upload inline ────────────────────────────────────
-function PdfPanel({ fattoId, pdfBase64, nomeFile, onPdfSaved }) {
-  const [uploading, setUploading] = useState(false);
-  const [err,       setErr]       = useState(null);
+// pdfUrl: blob URL diretto dal file (da coda), nessun decode base64 necessario.
+// fattoId: scarica da server con auth → blob URL.
+function PdfPanel({ fattoId, pdfUrl, nomeFile, onPdfSaved, onPdfDeleted, onDuplicatiTrovati }) {
+  const [uploading,      setUploading]      = useState(false);
+  const [loading,        setLoading]        = useState(false);
+  const [err,            setErr]            = useState(null);
+  const [fetchedUrl,     setFetchedUrl]     = useState(null);
+  const [fetchVer,       setFetchVer]       = useState(0);
+  const [pendingDup,     setPendingDup]     = useState(null); // { file, hash, duplicati }
+  const [confirmDelete,  setConfirmDelete]  = useState(false);
+  const [deleting,       setDeleting]       = useState(false);
   const inputRef = useRef();
 
-  async function handleUpload(file) {
+  // Scarica da server solo quando non c'è già un pdfUrl (anteprima da coda)
+  useEffect(() => {
+    if (pdfUrl || !fattoId) { setFetchedUrl(null); return; }
+    let active = true;
+    let url    = null;
+    setLoading(true);
+    setErr(null);
+    const token = localStorage.getItem("gsa_token");
+    fetch(fattiV2.getPdfUrl(fattoId), {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then(r => { if (!r.ok) throw new Error(`PDF non disponibile (${r.status})`); return r.arrayBuffer(); })
+      .then(buf => {
+        if (!active) return;
+        url = URL.createObjectURL(new Blob([buf], { type: "application/pdf" }));
+        setFetchedUrl(url);
+      })
+      .catch(e  => { if (active) setErr(e.message); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => {
+      active = false;
+      if (url) URL.revokeObjectURL(url);
+      setFetchedUrl(null);
+    };
+  }, [fattoId, pdfUrl, fetchVer]);
+
+  const displayUrl = pdfUrl || fetchedUrl;
+
+  async function doUpload(file) {
     setUploading(true);
     setErr(null);
     try {
       await fattiV2.uploadPdf(fattoId, file);
+      setFetchVer(v => v + 1);
       onPdfSaved?.();
     } catch (e) { setErr(e.message); }
     finally { setUploading(false); }
   }
 
-  const pdfUrl = pdfBase64
-    ? `data:application/pdf;base64,${pdfBase64}`
-    : fattiV2.getPdfUrl(fattoId);
+  async function checkAndUpload(file) {
+    setErr(null);
+    try {
+      const { hash, duplicati } = await fattiV2.checkHash(file, fattoId);
+      if (duplicati?.length) {
+        const info = { file, hash, duplicati, doUpload: () => doUpload(file) };
+        if (onDuplicatiTrovati) { onDuplicatiTrovati(info); } else { setPendingDup(info); }
+        return;
+      }
+      await doUpload(file);
+    } catch (e) { setErr(e.message); }
+  }
+
+  async function doDeletePdf() {
+    setDeleting(true);
+    setErr(null);
+    try {
+      await fattiV2.eliminaPdf(fattoId);
+      setFetchedUrl(null);
+      setConfirmDelete(false);
+      onPdfDeleted?.();
+    } catch (e) { setErr(e.message); }
+    finally { setDeleting(false); }
+  }
 
   return (
     <div>
-      {pdfUrl && (
+      {pendingDup && (
+        <DuplicatiModal
+          hash={pendingDup.hash}
+          duplicati={pendingDup.duplicati}
+          onAnnulla={() => setPendingDup(null)}
+          onProcedi={() => { const du = pendingDup.doUpload; setPendingDup(null); du(); }}
+        />
+      )}
+      {loading && (
+        <div style={{ height: 80, display: "flex", alignItems: "center", justifyContent: "center",
+                      color: "var(--text2)", fontSize: 13, border: "1px solid var(--border)",
+                      borderRadius: 8, marginBottom: 8 }}>
+          <i className="ti ti-loader-2 ti-spin" style={{ marginRight: 6 }} /> Carico PDF…
+        </div>
+      )}
+      {displayUrl && (
         <iframe
-          src={pdfUrl}
-          style={{ width: "100%", height: 320, border: "1px solid var(--border)", borderRadius: 8 }}
+          key={displayUrl}
+          src={displayUrl}
+          style={{ width: "100%", height: 400, border: "1px solid var(--border)",
+                   borderRadius: 8, display: "block" }}
           title="PDF allegato"
         />
       )}
@@ -153,11 +272,32 @@ function PdfPanel({ fattoId, pdfBase64, nomeFile, onPdfSaved }) {
         <span style={{ fontSize: 12, color: "var(--text2)", flex: 1 }}>
           {nomeFile || "Nessun file caricato"}
         </span>
-        <Btn size="sm" variant="ghost" onClick={() => inputRef.current?.click()} disabled={uploading}>
-          <i className="ti ti-upload" /> {uploading ? "Carico…" : "Cambia PDF"}
-        </Btn>
-        <input ref={inputRef} type="file" accept="application/pdf" style={{ display: "none" }}
-               onChange={e => e.target.files[0] && handleUpload(e.target.files[0])} />
+        {displayUrl && (
+          <Btn size="sm" variant="ghost" onClick={() => window.open(displayUrl, "_blank")}>
+            <i className="ti ti-external-link" /> Apri PDF
+          </Btn>
+        )}
+        {fattoId && fetchedUrl && !confirmDelete && (
+          <Btn size="sm" variant="ghost" onClick={() => setConfirmDelete(true)} title="Elimina PDF allegato">
+            <i className="ti ti-trash" style={{ color: "var(--red)" }} />
+          </Btn>
+        )}
+        {fattoId && fetchedUrl && confirmDelete && (
+          <>
+            <span style={{ fontSize: 12, color: "var(--red)" }}>Elimina PDF?</span>
+            <Btn size="sm" variant="ghost" onClick={() => setConfirmDelete(false)}>No</Btn>
+            <Btn size="sm" variant="danger" disabled={deleting} onClick={doDeletePdf}>
+              {deleting ? "…" : "Sì"}
+            </Btn>
+          </>
+        )}
+        {fattoId && (
+          <Btn size="sm" variant="ghost" onClick={() => inputRef.current?.click()} disabled={uploading || loading}>
+            <i className="ti ti-upload" /> {uploading ? "Carico…" : "Cambia PDF"}
+          </Btn>
+        )}
+        <input ref={inputRef} type="file" accept="application/pdf,.pdf" style={{ display: "none" }}
+               onChange={e => { if (e.target.files[0]) checkAndUpload(e.target.files[0]); e.target.value = ""; }} />
       </div>
       {err && <p style={{ fontSize: 12, color: "var(--red)", marginTop: 4 }}>{err}</p>}
     </div>
@@ -166,50 +306,114 @@ function PdfPanel({ fattoId, pdfBase64, nomeFile, onPdfSaved }) {
 
 // ── Modale Form Fatto Economico ───────────────────────────────────────────────
 function FattoModal({
-  initial,        // undefined = nuovo, object = modifica, con pdfBase64 per pre-fill da PDF
+  initial,
   onSave, onClose,
   immobili, condomini, tipologie,
 }) {
   const isEdit = !!initial?.id;
 
   const [form, setForm] = useState({
-    tipo:            "spesa",
-    immobileId:      "",
-    condominioId:    "",
-    soggettoPaganteId: "",
-    tipoSpesaId:     "",
-    nome:            "",
-    descrizione:     "",
-    importo:         "",
-    segno:           1,
-    fornitore:       "",
-    numeroFattura:   "",
-    periodicita:     "una_tantum",
-    dataPagamento:   "",
-    periodoDa:       "",
-    periodoA:        "",
-    rifDa:           "",
-    rifA:            "",
-    note:            "",
-    stato:           "normale",
+    tipo:                "spesa",
+    immobileId:          "",
+    condominioId:        "",
+    soggettoPaganteId:   "",
+    soggettoIncassanteId:"",
+    tipoSpesaId:         "",
+    nome:              "",
+    descrizione:       "",
+    importo:           "",
+    segno:             1,
+    fornitore:         "",
+    numeroFattura:     "",
+    periodicita:       "una_tantum",
+    dataPagamento:     "",
+    periodoDa:         "",
+    periodoA:          "",
+    rifDa:             "",
+    rifA:              "",
+    note:              "",
+    stato:             "normale",
     ...initial,
   });
   const [saving,       setSaving]       = useState(false);
   const [err,          setErr]          = useState(null);
   const [dupDati,      setDupDati]      = useState(null);
-  const [pdfBase64,    setPdfBase64]    = useState(initial?.pdf_base64 || null);
+  const [pdfUrl,       setPdfUrl]       = useState(initial?._pdfUrl   || null);
   const [nomeFile,     setNomeFile]     = useState(initial?.nomeFile   || null);
+  const [pdfEliminato,  setPdfEliminato]  = useState(false);
+  const [pendingPdfDup, setPendingPdfDup] = useState(null);
   const [confidenza,   setConfidenza]   = useState(initial?.confidenza || null);
+  const [soggetti,     setSoggetti]     = useState([]);      // chi paga / chi versa
+  const [incassanti,   setIncassanti]   = useState([]);      // chi incassa (solo entrate)
 
   const set    = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
   const setNum = k => e => setForm(f => ({ ...f, [k]: e.target.value === "" ? "" : Number(e.target.value) }));
 
-  // Calcola rate logiche per la periodicità
+  // Carica soggetti (pagante / versante) e incassanti in base a immobile o condominio selezionato
+  useEffect(() => {
+    const dataRif = oggi();
+
+    if (form.immobileId) {
+      // ── Fatto legato a un immobile specifico ──────────────────────────────────
+      const ruoloPagante = form.tipo === "entrata" ? "inquilino" : "proprietario";
+      immobiliV2.ruoli(form.immobileId, { ruolo: ruoloPagante, dataRif })
+        .then(list => {
+          setSoggetti(list);
+          if (!form.soggettoPaganteId) {
+            const def = form.tipo === "spesa"
+              ? (list.find(r => r.defaultPagante) || list[0])
+              : list[0];
+            if (def) setForm(f => ({ ...f, soggettoPaganteId: def.personaId }));
+          }
+        })
+        .catch(() => {});
+
+      if (form.tipo === "entrata") {
+        immobiliV2.ruoli(form.immobileId, { ruolo: "proprietario", dataRif })
+          .then(list => {
+            setIncassanti(list);
+            if (!form.soggettoIncassanteId) {
+              const def = list.find(r => r.defaultIncassante) || list[0];
+              if (def) setForm(f => ({ ...f, soggettoIncassanteId: def.personaId }));
+            }
+          })
+          .catch(() => {});
+      } else {
+        setIncassanti([]);
+      }
+
+    } else if (form.condominioId) {
+      // ── Fatto legato solo al condominio: proprietari di tutti gli immobili ────
+      condominiV2.proprietariImmobili(form.condominioId, dataRif)
+        .then(list => {
+          setSoggetti(list);
+          if (!form.soggettoPaganteId) {
+            const def = list.find(r => r.defaultPagante) || list[0];
+            if (def) setForm(f => ({ ...f, soggettoPaganteId: def.personaId }));
+          }
+          if (form.tipo === "entrata") {
+            setIncassanti(list);
+            if (!form.soggettoIncassanteId) {
+              const def = list.find(r => r.defaultIncassante) || list[0];
+              if (def) setForm(f => ({ ...f, soggettoIncassanteId: def.personaId }));
+            }
+          } else {
+            setIncassanti([]);
+          }
+        })
+        .catch(() => {});
+
+    } else {
+      setSoggetti([]);
+      setIncassanti([]);
+    }
+  }, [form.immobileId, form.condominioId, form.tipo]);
+
   const rate = form.periodicita !== "una_tantum"
     ? calcolaRate(form.periodicita, form.rifDa, form.rifA, form.importo)
     : [];
 
-  // Controlla duplicati dati al cambio di fornitore/importo/fattura
+  // Debounce check duplicati dati
   useEffect(() => {
     if (!form.fornitore && !form.numeroFattura) { setDupDati(null); return; }
     const t = setTimeout(async () => {
@@ -238,19 +442,19 @@ function FattoModal({
     setErr(null);
     try {
       const saved = await onSave(form);
-      // Se c'è un pdfBase64 in-memory da estrazione, non lo salviamo qui
-      // (viene salvato dall'utente tramite /pdf upload separato)
       onClose(saved);
     } catch (e) { setErr(e.message); setSaving(false); }
   }
 
-  const tipoFiltrate = tipologie.filter(t => !t.tipo || t.tipo === form.tipo || t.tipo === "spesa");
+  const tipoFiltrate = tipologie.filter(t => !t.tipo || t.tipo === form.tipo);
+  const soggLabel = form.tipo === "entrata" ? "Chi versa" : "Chi ha pagato";
 
   return (
+    <>
     <Modal
       title={isEdit ? "Modifica movimento" : `Nuovo ${form.tipo === "entrata" ? "Entrata" : "Spesa"}`}
       onClose={() => onClose(null)}
-      width={620}
+      width={640}
       footer={<>
         <Btn variant="ghost" onClick={() => onClose(null)}>Annulla</Btn>
         <Btn variant="primary" onClick={handleSave} disabled={saving}>
@@ -269,8 +473,53 @@ function FattoModal({
         )}
 
         <DuplicatiDatiAlert duplicati={dupDati} onIgnora={() => setDupDati(null)} />
+        {/* Avviso duplicato file (stesso hash già in archivio) */}
+        {initial?.duplicatiFile?.length > 0 && (
+          <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid var(--red)",
+                        borderRadius: 8, overflow: "hidden" }}>
+            <div style={{ padding: "10px 14px", display: "flex", alignItems: "center", gap: 8,
+                          borderBottom: "1px solid rgba(239,68,68,0.25)" }}>
+              <i className="ti ti-alert-triangle" style={{ color: "var(--red)", fontSize: 16, flexShrink: 0 }} />
+              <span style={{ fontSize: 13, fontWeight: 600, color: "var(--red)" }}>
+                Questo file è già presente in {initial.duplicatiFile.length} registr{initial.duplicatiFile.length > 1 ? "i" : "o"} — verifica prima di salvare
+              </span>
+            </div>
+            <div style={{ padding: "10px 14px", display: "grid", gap: 8 }}>
+              {initial.duplicatiFile.map((d, i) => (
+                <div key={i} style={{ padding: "10px 12px", background: "var(--bg3)",
+                                      border: "1px solid rgba(239,68,68,0.35)", borderRadius: 7 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                    <Badge label={TIPO_LABEL[d.tipo] || d.tipo} color={TIPO_COLOR[d.tipo] || "gray"} />
+                    <span style={{ fontWeight: 700, fontSize: 13 }}>
+                      {d.nome || d.descrizione || d.fornitore || "Voce senza nome"}
+                    </span>
+                    <span style={{ marginLeft: "auto", fontWeight: 700, fontSize: 13, color: "var(--accent)" }}>
+                      {fmtEur(d.importo)}
+                    </span>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px,1fr))",
+                                gap: "3px 14px", fontSize: 11, color: "var(--text2)" }}>
+                    {d.immobileNome   && <span><strong>Immobile:</strong> {d.immobileNome}</span>}
+                    {d.condominioNome && <span><strong>Condominio:</strong> {d.condominioNome}</span>}
+                    {d.fornitore      && <span><strong>Fornitore:</strong> {d.fornitore}</span>}
+                    {d.numeroFattura  && <span><strong>N. fattura:</strong> {d.numeroFattura}</span>}
+                    {d.periodoDa      && <span><strong>Periodo:</strong> {d.periodoDa}{d.periodoA && d.periodoA !== d.periodoDa ? ` → ${d.periodoA}` : ""}</span>}
+                    {(d.dataPagamento || d.dataEvento) && (
+                      <span><strong>Data:</strong> {fmtData(d.dataPagamento || d.dataEvento)}</span>
+                    )}
+                    {d.tipoSpesaDesc  && <span><strong>Tipo spesa:</strong> {d.tipoSpesaDesc}</span>}
+                    {d.nomeFile       && <span><strong>File:</strong> {d.nomeFile}</span>}
+                    {d.stato && d.stato !== "normale" && (
+                      <span><strong>Stato:</strong> {d.stato}</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
-        {/* Tipo */}
+        {/* Tipo + Stato */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Field label="Tipo *">
             <select className="inp" value={form.tipo} onChange={set("tipo")}>
@@ -288,7 +537,7 @@ function FattoModal({
           </Field>
         </div>
 
-        {/* Riferimento */}
+        {/* Immobile + Condominio */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Field label="Immobile">
             <select className="inp" value={form.immobileId} onChange={set("immobileId")}>
@@ -302,6 +551,42 @@ function FattoModal({
               {condomini.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
             </select>
           </Field>
+        </div>
+
+        {/* Soggetto pagante / versante + incassante */}
+        <div style={{ display: "grid", gridTemplateColumns: form.tipo === "entrata" ? "1fr 1fr" : "1fr", gap: 12 }}>
+          <Field label={soggLabel}>
+            <select className="inp" value={form.soggettoPaganteId} onChange={set("soggettoPaganteId")}>
+              <option value="">— Seleziona —</option>
+              {soggetti.map(s => (
+                <option key={s.personaId} value={s.personaId}>
+                  {[s.personaCognome, s.personaNome].filter(Boolean).join(" ")}
+                  {s.defaultPagante && " ★"}
+                  {s.validitaDa && ` (dal ${fmtData(s.validitaDa)})`}
+                </option>
+              ))}
+            </select>
+            {!form.immobileId && !form.condominioId && (
+              <span style={{ fontSize: 11, color: "var(--text2)" }}>Seleziona prima immobile o condominio</span>
+            )}
+          </Field>
+          {form.tipo === "entrata" && (
+            <Field label="Chi incassa" hint="proprietario che riceve">
+              <select className="inp" value={form.soggettoIncassanteId} onChange={set("soggettoIncassanteId")}>
+                <option value="">— Seleziona —</option>
+                {incassanti.map(s => (
+                  <option key={s.personaId} value={s.personaId}>
+                    {[s.personaCognome, s.personaNome].filter(Boolean).join(" ")}
+                    {s.defaultIncassante && " ★"}
+                    {s.validitaDa && ` (dal ${fmtData(s.validitaDa)})`}
+                  </option>
+                ))}
+              </select>
+              {!form.immobileId && !form.condominioId && (
+                <span style={{ fontSize: 11, color: "var(--text2)" }}>Seleziona prima immobile o condominio</span>
+              )}
+            </Field>
+          )}
         </div>
 
         {/* Tipologia + importo */}
@@ -364,10 +649,10 @@ function FattoModal({
           </Field>
         </div>
 
-        {/* Periodo riferimento preciso (DATE) per spese periodiche */}
+        {/* Periodo riferimento preciso per periodici */}
         {form.periodicita !== "una_tantum" && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <Field label="Rif. da (data precisa)" hint="periodo rate">
+            <Field label="Rif. da (data precisa)">
               <input className="inp" type="date" value={form.rifDa} onChange={set("rifDa")} />
             </Field>
             <Field label="Rif. a (data precisa)">
@@ -402,27 +687,53 @@ function FattoModal({
                     style={{ resize: "vertical" }} />
         </Field>
 
-        {/* PDF preview se caricato da estrazione */}
-        {pdfBase64 && (
-          <Field label="PDF estratto">
-            <PdfPanel
-              fattoId={initial?.id}
-              pdfBase64={pdfBase64}
-              nomeFile={nomeFile}
-            />
-          </Field>
+        {/* PDF preview dal file selezionato (da coda) */}
+        {pdfUrl && (
+          <div>
+            <p style={{ fontSize: 11, color: "var(--text2)", textTransform: "uppercase",
+                        letterSpacing: 0.6, margin: "0 0 6px", fontWeight: 700 }}>
+              PDF estratto (sarà allegato al salvataggio)
+            </p>
+            <PdfPanel pdfUrl={pdfUrl} nomeFile={nomeFile} />
+          </div>
+        )}
+
+        {/* PDF allegato (modifica voce esistente) */}
+        {isEdit && initial?.hasPdf && !pdfUrl && !pdfEliminato && (
+          <div>
+            <p style={{ fontSize: 11, color: "var(--text2)", textTransform: "uppercase",
+                        letterSpacing: 0.6, margin: "0 0 6px", fontWeight: 700 }}>
+              Documento allegato
+            </p>
+            <PdfPanel fattoId={initial.id} nomeFile={initial.nomeFile || nomeFile}
+                      onPdfDeleted={() => setPdfEliminato(true)}
+                      onDuplicatiTrovati={setPendingPdfDup} />
+          </div>
         )}
       </div>
     </Modal>
+    {pendingPdfDup && (
+      <DuplicatiModal
+        hash={pendingPdfDup.hash}
+        duplicati={pendingPdfDup.duplicati}
+        onAnnulla={() => setPendingPdfDup(null)}
+        onProcedi={() => { const du = pendingPdfDup.doUpload; setPendingPdfDup(null); du(); }}
+      />
+    )}
+    </>
   );
 }
 
 // ── Modale dettaglio Fatto ────────────────────────────────────────────────────
 function FattoDettaglio({ fatto, onClose, onEdit, onDeleted, onPdfChange }) {
-  const [deleting, setDeleting] = useState(false);
-  const [confirmDel, setConfirmDel] = useState(false);
-  const [delErr,   setDelErr]   = useState(null);
-  const [hasPdf,   setHasPdf]   = useState(fatto.hasPdf);
+  const [deleting,      setDeleting]      = useState(false);
+  const [confirmDel,    setConfirmDel]    = useState(false);
+  const [delErr,        setDelErr]        = useState(null);
+  const [hasPdf,        setHasPdf]        = useState(fatto.hasPdf);
+  const [pdfErr,        setPdfErr]        = useState(null);
+  const [pdfUploading,  setPdfUploading]  = useState(false);
+  const [pendingDup,    setPendingDup]    = useState(null); // { file, hash, duplicati }
+  const pdfInputRef = useRef();
 
   async function handleDelete() {
     setDeleting(true);
@@ -433,7 +744,36 @@ function FattoDettaglio({ fatto, onClose, onEdit, onDeleted, onPdfChange }) {
     } catch (e) { setDelErr(e.message); setDeleting(false); }
   }
 
+  async function doUploadPdf(file) {
+    setPdfErr(null);
+    setPdfUploading(true);
+    try {
+      await fattiV2.uploadPdf(fatto.id, file);
+      setHasPdf(true);
+      onPdfChange?.();
+    } catch (e) {
+      setPdfErr(e.message || "Errore upload PDF");
+    } finally {
+      setPdfUploading(false);
+    }
+  }
+
+  async function handlePdfUpload(file) {
+    setPdfErr(null);
+    try {
+      const { hash, duplicati } = await fattiV2.checkHash(file, fatto.id);
+      if (duplicati?.length) {
+        setPendingDup({ file, hash, duplicati, doUpload: () => doUploadPdf(file) });
+        return;
+      }
+      await doUploadPdf(file);
+    } catch (e) {
+      setPdfErr(e.message || "Errore controllo duplicati");
+    }
+  }
+
   return (
+    <>
     <Modal title={fatto.nome || fatto.descrizione || `${TIPO_LABEL[fatto.tipo]} — ${fmtEur(fatto.importo)}`}
            subtitle={fatto.immobileNome || fatto.condominioNome}
            onClose={onClose} width={600}
@@ -443,8 +783,7 @@ function FattoDettaglio({ fatto, onClose, onEdit, onDeleted, onPdfChange }) {
                ? <>
                    <span style={{ fontSize: 12, color: "var(--red)", marginRight: 8 }}>Sicuro?</span>
                    <Btn variant="ghost" onClick={() => setConfirmDel(false)}>No</Btn>
-                   <Btn variant="danger" disabled={deleting}
-                        onClick={handleDelete}>
+                   <Btn variant="danger" disabled={deleting} onClick={handleDelete}>
                      {deleting ? "…" : <><i className="ti ti-trash" /> Sì, elimina</>}
                    </Btn>
                  </>
@@ -461,22 +800,23 @@ function FattoDettaglio({ fatto, onClose, onEdit, onDeleted, onPdfChange }) {
       <div style={{ display: "grid", gap: 16 }}>
         {delErr && <p style={{ color: "var(--red)", fontSize: 12 }}>{delErr}</p>}
 
-        {/* Dati principali */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px,1fr))", gap: 10 }}>
           {[
-            ["Tipo",         <Badge label={TIPO_LABEL[fatto.tipo]} color={TIPO_COLOR[fatto.tipo]} />],
-            ["Stato",        <Badge label={fatto.stato || "normale"} color={STATO_COLOR[fatto.stato] || "gray"} />],
-            ["Importo",      fmtEur(fatto.importo)],
-            ["Netto",        fmtEur(fatto.importoNetto)],
-            ["Data pagam.",  fmtData(fatto.dataPagamento || fatto.dataEvento)],
-            ["Periodo",      fatto.periodoDa && (fatto.periodoDa + (fatto.periodoA ? ` → ${fatto.periodoA}` : ""))],
-            ["Fornitore",    fatto.fornitore],
-            ["N. Fattura",   fatto.numeroFattura || fatto.numeroDoc],
-            ["Tipologia",    fatto.tipoSpesaDesc],
-            ["Periodicità",  fatto.periodicita !== "una_tantum" && PERIODICITA_OPTS.find(o => o.value === fatto.periodicita)?.label],
-            ["Immobile",     fatto.immobileNome],
-            ["Condominio",   fatto.condominioNome],
-            ["Note",         fatto.note],
+            ["Tipo",           <Badge label={TIPO_LABEL[fatto.tipo]} color={TIPO_COLOR[fatto.tipo]} />],
+            ["Stato",          <Badge label={fatto.stato || "normale"} color={STATO_COLOR[fatto.stato] || "gray"} />],
+            ["Importo",        fmtEur(fatto.importo)],
+            ["Netto",          fmtEur(fatto.importoNetto)],
+            [fatto.tipo === "entrata" ? "Chi versa"  : "Chi ha pagato", fatto.soggettoPaganteNome],
+            [fatto.tipo === "entrata" ? "Chi incassa" : null,            fatto.soggettoIncassanteNome],
+            ["Data pagam.",    fmtData(fatto.dataPagamento || fatto.dataEvento)],
+            ["Periodo",        fatto.periodoDa && (fatto.periodoDa + (fatto.periodoA ? ` → ${fatto.periodoA}` : ""))],
+            ["Fornitore",      fatto.fornitore],
+            ["N. Fattura",     fatto.numeroFattura || fatto.numeroDoc],
+            ["Tipologia",      fatto.tipoSpesaDesc],
+            ["Periodicità",    fatto.periodicita !== "una_tantum" && PERIODICITA_OPTS.find(o => o.value === fatto.periodicita)?.label],
+            ["Immobile",       fatto.immobileNome],
+            ["Condominio",     fatto.condominioNome],
+            ["Note",           fatto.note],
           ].filter(([, v]) => v).map(([label, val]) => (
             <div key={label}>
               <p style={{ fontSize: 10, color: "var(--text2)", margin: "0 0 2px",
@@ -503,151 +843,377 @@ function FattoDettaglio({ fatto, onClose, onEdit, onDeleted, onPdfChange }) {
           </p>
           {hasPdf
             ? <PdfPanel fattoId={fatto.id} nomeFile={fatto.nomeFile}
-                        onPdfSaved={() => { setHasPdf(true); onPdfChange?.(); }} />
-            : <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ fontSize: 12, color: "var(--text2)" }}>Nessun PDF allegato</span>
-                <label style={{ cursor: "pointer" }}>
-                  <Btn size="sm" variant="ghost" as="span">
-                    <i className="ti ti-upload" /> Allega PDF
+                        onPdfSaved={() => { setHasPdf(true); onPdfChange?.(); }}
+                        onPdfDeleted={() => { setHasPdf(false); onPdfChange?.(); }}
+                        onDuplicatiTrovati={setPendingDup} />
+            : <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 12, color: "var(--text2)" }}>
+                    {pdfUploading ? "Caricamento in corso…" : "Nessun PDF allegato"}
+                  </span>
+                  <Btn size="sm" variant="ghost" disabled={pdfUploading}
+                       onClick={() => pdfInputRef.current?.click()}>
+                    <i className={`ti ${pdfUploading ? "ti-loader-2 ti-spin" : "ti-upload"}`} />
+                    {pdfUploading ? " Carico…" : " Allega PDF"}
                   </Btn>
-                  <input type="file" accept="application/pdf" style={{ display: "none" }}
-                         onChange={async e => {
-                           const file = e.target.files[0];
-                           if (!file) return;
-                           try {
-                             await fattiV2.uploadPdf(fatto.id, file);
-                             setHasPdf(true);
-                             onPdfChange?.();
-                           } catch {}
-                         }} />
-                </label>
+                  <input ref={pdfInputRef} type="file" accept="application/pdf,.pdf"
+                         style={{ display: "none" }}
+                         onChange={e => { if (e.target.files[0]) handlePdfUpload(e.target.files[0]); e.target.value = ""; }} />
+                </div>
+                {pdfErr && (
+                  <p style={{ fontSize: 12, color: "var(--red)", marginTop: 6 }}>{pdfErr}</p>
+                )}
               </div>
           }
+        </div>
+      </div>
+    </Modal>
+    {pendingDup && (
+      <DuplicatiModal
+        hash={pendingDup.hash}
+        duplicati={pendingDup.duplicati}
+        onAnnulla={() => setPendingDup(null)}
+        onProcedi={() => { const du = pendingDup.doUpload; setPendingDup(null); du(); }}
+      />
+    )}
+    </>
+  );
+}
+
+// ── Intestazione colonne griglia ──────────────────────────────────────────────
+const GRID_COLS = "28px 140px 130px 95px 110px 80px 100px 1fr 95px 80px 28px 65px";
+
+function SortableGridHeader({ sortKey, sortDir, onSort, allSelected, someSelected, onSelectAll }) {
+  const thBase = {
+    fontSize: 10, fontWeight: 700, textTransform: "uppercase",
+    letterSpacing: 0.6, padding: "6px 8px", cursor: "pointer",
+    userSelect: "none", display: "flex", alignItems: "center", gap: 3,
+  };
+  function Cell({ label, k, style }) {
+    const active = sortKey === k;
+    return (
+      <div onClick={() => onSort(k)}
+           style={{ ...thBase, ...style, color: active ? "var(--accent)" : "var(--text2)" }}>
+        {label}
+        {active
+          ? <i className={`ti ti-chevron-${sortDir === "asc" ? "up" : "down"}`} style={{ fontSize: 9 }} />
+          : <i className="ti ti-selector" style={{ fontSize: 9, opacity: 0.3 }} />}
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: GRID_COLS,
+                  borderBottom: "2px solid var(--border)", marginBottom: 2 }}>
+      <div style={{ ...thBase, justifyContent: "center", cursor: "default" }}>
+        <input type="checkbox" checked={allSelected}
+               ref={el => { if (el) el.indeterminate = someSelected && !allSelected; }}
+               onChange={onSelectAll}
+               style={{ cursor: "pointer", accentColor: "var(--accent)" }} />
+      </div>
+      <Cell label="Soggetto"    k="soggettoPaganteNome" />
+      <Cell label="Patrimonio"  k="immobileNome" />
+      <Cell label="Tipologia"   k="tipoSpesaDesc" />
+      <Cell label="Tipo"        k="tipo" />
+      <Cell label="Periodicità" k="periodicita" />
+      <Cell label="Periodo"     k="periodoDa" />
+      <Cell label="Descrizione" k="nome" />
+      <Cell label="Importo"     k="importoNetto" style={{ justifyContent: "flex-end" }} />
+      <Cell label="Stato"       k="stato" />
+      <div style={thBase} />
+      <div style={thBase} />
+    </div>
+  );
+}
+
+// ── Modale modifica massiva ───────────────────────────────────────────────────
+function BulkEditModal({ count, immobili, condomini, tipologie, onApplica, onClose }) {
+  const [form,   setForm]   = useState({
+    stato: "", tipoSpesaId: "", periodicita: "", immobileId: "", condominioId: "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [err,    setErr]    = useState(null);
+  const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
+
+  function setImmobile(e) {
+    setForm(f => ({ ...f, immobileId: e.target.value, condominioId: e.target.value ? "" : f.condominioId }));
+  }
+  function setCondominio(e) {
+    setForm(f => ({ ...f, condominioId: e.target.value, immobileId: e.target.value ? "" : f.immobileId }));
+  }
+
+  async function handleApplica() {
+    const dati = {};
+    if (form.stato)       dati.stato       = form.stato;
+    if (form.tipoSpesaId) dati.tipoSpesaId = form.tipoSpesaId;
+    if (form.periodicita) dati.periodicita = form.periodicita;
+    // destinazione: mutua esclusione — chi viene impostato azzera l'altro
+    if (form.immobileId)   { dati.immobileId = form.immobileId;     dati.condominioId = null; }
+    if (form.condominioId) { dati.condominioId = form.condominioId; dati.immobileId   = null; }
+    if (!Object.keys(dati).length) { setErr("Compila almeno un campo da modificare"); return; }
+    setSaving(true);
+    try { await onApplica(dati); onClose(); }
+    catch (e) { setErr(e.message); setSaving(false); }
+  }
+
+  const destSet = !!(form.immobileId || form.condominioId);
+
+  return (
+    <Modal title={`Modifica massiva — ${count} ${count === 1 ? "voce" : "voci"}`}
+           onClose={onClose} width={460}
+           footer={<>
+             <Btn variant="ghost" onClick={onClose}>Annulla</Btn>
+             <Btn variant="primary" onClick={handleApplica} disabled={saving}>
+               {saving ? "Applico…" : `Applica a ${count} ${count === 1 ? "voce" : "voci"}`}
+             </Btn>
+           </>}>
+      <div style={{ display: "grid", gap: 14 }}>
+        {err && <p style={{ color: "var(--red)", fontSize: 13, margin: 0 }}>{err}</p>}
+        <p style={{ fontSize: 12, color: "var(--text2)", margin: 0,
+                    padding: "8px 10px", borderRadius: 7, background: "var(--bg3)" }}>
+          Solo i campi compilati verranno aggiornati. Lasciare "— Non modificare —" per non toccare quel campo.
+        </p>
+
+        <Field label="Stato">
+          <select className="inp" value={form.stato} onChange={set("stato")}>
+            <option value="">— Non modificare —</option>
+            <option value="normale">Normale</option>
+            <option value="da_verificare">Da verificare</option>
+            <option value="verificato">Verificato</option>
+            <option value="duplicato">Duplicato</option>
+          </select>
+        </Field>
+        <Field label="Tipologia / Tipo spesa">
+          <select className="inp" value={form.tipoSpesaId} onChange={set("tipoSpesaId")}>
+            <option value="">— Non modificare —</option>
+            {tipologie.map(t => <option key={t.id} value={t.id}>{t.descrizione}</option>)}
+          </select>
+        </Field>
+        <Field label="Periodicità">
+          <select className="inp" value={form.periodicita} onChange={set("periodicita")}>
+            <option value="">— Non modificare —</option>
+            {PERIODICITA_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </Field>
+
+        {/* Sezione destinazione */}
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14 }}>
+          <p style={{ fontSize: 11, fontWeight: 700, color: "var(--text2)",
+                      textTransform: "uppercase", letterSpacing: 0.6, margin: "0 0 12px" }}>
+            Sposta destinazione
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <Field label="Immobile">
+              <select className="inp" value={form.immobileId} onChange={setImmobile}
+                      style={{ opacity: form.condominioId ? 0.4 : 1 }}>
+                <option value="">— Non modificare —</option>
+                {immobili.map(i => <option key={i.id} value={i.id}>{i.nome}</option>)}
+              </select>
+            </Field>
+            <Field label="Condominio">
+              <select className="inp" value={form.condominioId} onChange={setCondominio}
+                      style={{ opacity: form.immobileId ? 0.4 : 1 }}>
+                <option value="">— Non modificare —</option>
+                {condomini.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+              </select>
+            </Field>
+          </div>
+          {destSet && (
+            <p style={{ fontSize: 11, color: "var(--accent)", margin: "8px 0 0",
+                        display: "flex", alignItems: "center", gap: 5 }}>
+              <i className="ti ti-info-circle" />
+              {form.immobileId
+                ? "Le voci verranno spostate all'immobile selezionato. Il condominio diretto verrà azzerato."
+                : "Le voci verranno spostate al condominio selezionato. L'immobile verrà azzerato."}
+            </p>
+          )}
         </div>
       </div>
     </Modal>
   );
 }
 
-// ── Card singolo fatto ─────────────────────────────────────────────────────────
-function FattoCard({ fatto, onSelect, onEdit }) {
+// ── Riga griglia fatto ────────────────────────────────────────────────────────
+function FattoRow({ fatto, selected, onToggle, onSelect, onEdit, onDelete }) {
   const [hover, setHover] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+
+  const periodo = fatto.periodoDa
+    ? fatto.periodoA && fatto.periodoA !== fatto.periodoDa
+      ? `${fatto.periodoDa} → ${fatto.periodoA}`
+      : fatto.periodoDa
+    : "—";
+
+  const periLabel = PERIODICITA_OPTS.find(o => o.value === fatto.periodicita)?.label || "—";
+
+  const td = {
+    padding: "8px 8px",
+    fontSize: 13,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    display: "flex",
+    alignItems: "center",
+  };
+
   return (
     <div
       onClick={() => onSelect(fatto)}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       style={{
-        background: "var(--bg2)",
+        display: "grid",
+        gridTemplateColumns: GRID_COLS,
+        background: hover ? "var(--bg3)" : "var(--bg2)",
         border: `1px solid ${hover ? "var(--accent)" : "var(--border)"}`,
-        borderRadius: 10, padding: "11px 16px",
-        display: "grid", gridTemplateColumns: "1fr auto",
-        gap: 12, alignItems: "center", cursor: "pointer",
-        transition: "border-color 0.15s",
-      }}>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3, flexWrap: "wrap" }}>
-          <Badge label={TIPO_LABEL[fatto.tipo]} color={TIPO_COLOR[fatto.tipo]} />
-          {fatto.stato && fatto.stato !== "normale" && (
-            <Badge label={fatto.stato} color={STATO_COLOR[fatto.stato] || "gray"} />
-          )}
-          {fatto.hasPdf && <i className="ti ti-paperclip" style={{ fontSize: 11, color: "var(--text2)" }} title="PDF allegato" />}
-          <span style={{ fontWeight: 700, fontSize: 14 }}>
-            {fmtEur(fatto.importoNetto ?? fatto.importo)}
-          </span>
-          {fatto.nome && <span style={{ fontSize: 13, color: "var(--text)" }}>{fatto.nome}</span>}
-        </div>
-        <p style={{ fontSize: 12, color: "var(--text2)", margin: 0,
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {[
-            fatto.immobileNome || fatto.condominioNome,
-            fatto.tipoSpesaDesc,
-            fatto.fornitore,
-            fatto.periodoDa,
-            fatto.dataPagamento && fmtData(fatto.dataPagamento),
-          ].filter(Boolean).join(" · ")}
-        </p>
+        borderRadius: 8,
+        cursor: "pointer",
+        transition: "all 0.1s",
+        marginBottom: 3,
+      }}
+    >
+      {/* Checkbox selezione */}
+      <div style={{ ...td, justifyContent: "center" }} onClick={e => e.stopPropagation()}>
+        <input type="checkbox" checked={!!selected} onChange={() => onToggle(fatto.id)}
+               style={{ cursor: "pointer", accentColor: "var(--accent)" }} />
       </div>
-      <div style={{ display: "flex", gap: 4 }} onClick={e => e.stopPropagation()}>
-        <Btn size="sm" variant="ghost" title="Modifica" onClick={() => onEdit(fatto)}>
-          <i className="ti ti-pencil" />
-        </Btn>
-        <Btn size="sm" variant="ghost" title="Dettaglio" onClick={() => onSelect(fatto)}>
-          <i className="ti ti-chevron-right" />
-        </Btn>
+
+      {/* Soggetto */}
+      <div style={td}>
+        <span style={{ color: fatto.soggettoPaganteNome ? "var(--text)" : "var(--text2)",
+                        fontSize: 12 }}>
+          {fatto.soggettoPaganteNome || "—"}
+        </span>
+      </div>
+
+      {/* Patrimonio */}
+      <div style={{ ...td, gap: 5 }}>
+        <i className={`ti ${fatto.condominioNome && !fatto.immobileNome ? "ti-building" : "ti-home"}`}
+           style={{ fontSize: 11, color: "var(--text2)", flexShrink: 0 }} />
+        <span style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis" }}>
+          {fatto.immobileNome || fatto.condominioNome || "—"}
+        </span>
+      </div>
+
+      {/* Tipologia (tipo spesa) */}
+      <div style={td}>
+        <span style={{ fontSize: 11, color: fatto.tipoSpesaDesc ? "var(--text)" : "var(--text2)",
+                        overflow: "hidden", textOverflow: "ellipsis" }}>
+          {fatto.tipoSpesaDesc || "—"}
+        </span>
+      </div>
+
+      {/* Tipo */}
+      <div style={td}>
+        <Badge label={TIPO_LABEL[fatto.tipo]} color={TIPO_COLOR[fatto.tipo]} />
+      </div>
+
+      {/* Periodicità */}
+      <div style={td}>
+        <span style={{ fontSize: 11, color: fatto.periodicita !== "una_tantum" ? "var(--accent)" : "var(--text2)" }}>
+          {periLabel}
+        </span>
+      </div>
+
+      {/* Periodo */}
+      <div style={td}>
+        <span style={{ fontSize: 11, color: "var(--text2)" }}>{periodo}</span>
+      </div>
+
+      {/* Descrizione */}
+      <div style={{ ...td, flexDirection: "column", alignItems: "flex-start", gap: 1 }}>
+        {fatto.nome && (
+          <span style={{ fontSize: 13, fontWeight: 600, overflow: "hidden",
+                          textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>
+            {fatto.nome}
+          </span>
+        )}
+        {fatto.fornitore && (
+          <span style={{ fontSize: 11, color: "var(--text2)", overflow: "hidden",
+                          textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>
+            {fatto.fornitore}
+          </span>
+        )}
+        {!fatto.nome && !fatto.fornitore && fatto.descrizione && (
+          <span style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis",
+                          whiteSpace: "nowrap", maxWidth: "100%" }}>
+            {fatto.descrizione}
+          </span>
+        )}
+      </div>
+
+      {/* Importo */}
+      <div style={{ ...td, justifyContent: "flex-end" }}>
+        <span style={{ fontWeight: 700, fontSize: 14,
+                        color: fatto.tipo === "entrata" ? "var(--green, #22c55e)" : "var(--text)" }}>
+          {fmtEur(fatto.importoNetto ?? fatto.importo)}
+        </span>
+      </div>
+
+      {/* Stato */}
+      <div style={td}>
+        {fatto.stato && fatto.stato !== "normale"
+          ? <Badge label={fatto.stato} color={STATO_COLOR[fatto.stato] || "gray"} />
+          : <span style={{ fontSize: 11, color: "var(--text2)" }}>—</span>
+        }
+      </div>
+
+      {/* Allegato */}
+      <div style={{ ...td, justifyContent: "center" }}>
+        {fatto.hasPdf && (
+          <i className="ti ti-paperclip" style={{ fontSize: 13, color: "var(--accent)" }}
+             title="PDF allegato" />
+        )}
+      </div>
+
+      {/* Azioni */}
+      <div style={{ ...td, gap: 2, justifyContent: "flex-end" }}
+           onClick={e => e.stopPropagation()}>
+        {confirmDel ? (
+          <>
+            <Btn size="sm" variant="ghost" title="Annulla" onClick={() => setConfirmDel(false)}>
+              <i className="ti ti-x" style={{ fontSize: 11 }} />
+            </Btn>
+            <Btn size="sm" variant="danger" title="Conferma eliminazione"
+                 onClick={() => onDelete(fatto)}>
+              <i className="ti ti-check" style={{ fontSize: 11 }} />
+            </Btn>
+          </>
+        ) : (
+          <>
+            <Btn size="sm" variant="ghost" title="Modifica" onClick={() => onEdit(fatto)}>
+              <i className="ti ti-pencil" style={{ fontSize: 12 }} />
+            </Btn>
+            <Btn size="sm" variant="ghost" title="Elimina"
+                 onClick={() => setConfirmDel(true)}>
+              <i className="ti ti-trash" style={{ fontSize: 12, color: "var(--red)" }} />
+            </Btn>
+          </>
+        )}
       </div>
     </div>
   );
 }
 
-// ── Upload PDF con hash check + estrazione ────────────────────────────────────
-function usePdfUpload({ immobili, tipologie, onExtracted }) {
-  const [state,       setState]   = useState("idle"); // idle|checking|duplicate|extracting
-  const [dupInfo,     setDupInfo] = useState(null);
-  const [pendingFile, setPendingFile] = useState(null);
-  const inputRef = useRef();
-
-  async function handleFile(file) {
-    setState("checking");
-    setPendingFile(file);
-    try {
-      const { hash, duplicati } = await fattiV2.checkHash(file);
-      if (duplicati.length > 0) {
-        setDupInfo({ hash, duplicati });
-        setState("duplicate");
-        return;
-      }
-      await doExtract(file);
-    } catch (e) {
-      setState("idle");
-      alert("Errore: " + e.message);
-    }
-  }
-
-  async function doExtract(file) {
-    setState("extracting");
-    try {
-      const data = await fattiV2.estraiPdf(file, { immobili, tipologie });
-      onExtracted({ ...data, nomeFile: file.name });
-    } catch (e) {
-      alert("Errore estrazione PDF: " + e.message);
-    } finally {
-      setState("idle");
-      setPendingFile(null);
-    }
-  }
-
-  function procediDuplicato() {
-    setDupInfo(null);
-    doExtract(pendingFile);
-  }
-
-  function annullaDuplicato() {
-    setDupInfo(null);
-    setPendingFile(null);
-    setState("idle");
-  }
-
-  return {
-    state, dupInfo, inputRef,
-    triggerUpload: () => inputRef.current?.click(),
-    onFileChange:  e  => e.target.files[0] && handleFile(e.target.files[0]),
-    procediDuplicato,
-    annullaDuplicato,
-  };
-}
 
 // ── Sezione Movimenti ─────────────────────────────────────────────────────────
 function MovimentiSection({ immobili, condomini, tipologie }) {
-  const [fatti,    setFatti]   = useState(null);
-  const [loading,  setLoading] = useState(false);
-  const [filtri, setFiltri]    = useState({
+  const [fatti,      setFatti]      = useState(null);
+  const [loading,    setLoading]    = useState(false);
+  const [filtri,     setFiltri]     = useState({
     immobileId: "", condominioId: "", tipo: "",
     tipoSpesaId: "", periodoDa: "", periodoA: "",
   });
-  const [selected, setSelected] = useState(null);
-  const [editing,  setEditing]  = useState(null); // null=no modal, false=new, obj=edit
-  const [err,      setErr]      = useState(null);
+  const [filtText,      setFiltText]      = useState("");
+  const [soggettoIn,    setSoggettoIn]    = useState("");
+  const [sortKey,       setSortKey]       = useState("periodoDa");
+  const [sortDir,       setSortDir]       = useState("desc");
+  const [selected,      setSelected]      = useState(null);   // fatto aperto in dettaglio
+  const [editing,       setEditing]       = useState(null);
+  const [err,           setErr]           = useState(null);
+  const [selIds,        setSelIds]        = useState(new Set());  // righe selezionate
+  const [showBulk,      setShowBulk]      = useState(false);
+  const [showImporta,      setShowImporta]      = useState(false);
+  const [pendingQueueItem, setPendingQueueItem] = useState(null); // item in attesa conferma duplicati
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -658,77 +1224,193 @@ function MovimentiSection({ immobili, condomini, tipologie }) {
 
   useEffect(() => { load(); }, [load]);
 
-  // PDF upload hook
-  const pdf = usePdfUpload({
-    immobili,
-    tipologie,
-    onExtracted: (data) => {
-      // Apre il form pre-compilato con i dati estratti
-      setEditing({
-        tipo:         "spesa",
-        immobileId:   data.immobileId   || "",
-        tipoSpesaId:  data.tipoSpesaId  || "",
-        importo:      data.importo      || "",
-        fornitore:    data.fornitore    || "",
-        numeroFattura: data.numeroDoc   || "",
-        periodoDa:    data.periodoDa    || "",
-        periodoA:     data.periodoA     || "",
-        pdf_base64:   data.pdf_base64,
-        nomeFile:     data.nomeFile,
-        fileHash:     data.fileHash,
-        confidenza:   data.confidenza,
-      });
+  const displayed = useMemo(() => {
+    if (!fatti) return [];
+    let list = fatti;
+    if (filtText.trim()) {
+      const q = filtText.trim().toLowerCase();
+      list = list.filter(f =>
+        [f.nome, f.fornitore, f.descrizione, f.immobileNome, f.condominioNome, f.tipoSpesaDesc]
+          .some(v => v?.toLowerCase().includes(q))
+      );
+    }
+    if (soggettoIn.trim()) {
+      const q = soggettoIn.trim().toLowerCase();
+      list = list.filter(f =>
+        [f.soggettoPaganteNome, f.soggettoIncassanteNome, f.personaNome]
+          .some(v => v?.toLowerCase().includes(q))
+      );
+    }
+    return [...list].sort((a, b) => {
+      let va = a[sortKey] ?? "";
+      let vb = b[sortKey] ?? "";
+      if (typeof va === "string") va = va.toLowerCase();
+      if (typeof vb === "string") vb = vb.toLowerCase();
+      if (va < vb) return sortDir === "asc" ? -1 : 1;
+      if (va > vb) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+  }, [fatti, filtText, soggettoIn, sortKey, sortDir]);
+
+  function toggleSort(key) {
+    if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc");
+    else { setSortKey(key); setSortDir("asc"); }
+  }
+
+  function toggleSelId(id) {
+    setSelIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    const allIds = new Set(displayed.map(f => f.id));
+    setSelIds(prev => prev.size === displayed.length ? new Set() : allIds);
+  }
+
+  async function handleBulkApplica(dati) {
+    await fattiV2.aggiornaBulk([...selIds], dati);
+    setSelIds(new Set());
+    await load();
+  }
+
+  const pdfInputRef = useRef();
+
+  const { queue, addFiles, removeItem, clearQueue, apriProssimo } = usePdfQueue({
+    extractFn: async (file) => {
+      const { hash, duplicati } = await fattiV2.checkHash(file);
+      const data = await fattiV2.estraiPdf(file, { immobili, tipologie });
+      return { ...data, nomeFile: file.name, hash, duplicatiFile: duplicati };
     },
+    onReady: (item) => {
+      if (item.data?.duplicatiFile?.length > 0) {
+        setPendingQueueItem(item);
+      } else {
+        apriEditingDaCoda(item);
+      }
+    },
+    keepFile: true,
   });
+
+  function apriEditingDaCoda(item) {
+    setEditing({
+      tipo:           "spesa",
+      immobileId:     item.data?.immobileId  || "",
+      tipoSpesaId:    item.data?.tipoSpesaId || "",
+      importo:        item.data?.importo     || "",
+      fornitore:      item.data?.fornitore   || "",
+      numeroFattura:  item.data?.numeroDoc   || "",
+      periodoDa:      item.data?.periodoDa   || "",
+      periodoA:       item.data?.periodoA    || "",
+      nomeFile:       item.nomeFile,
+      fileHash:       item.data?.hash,
+      confidenza:     item.data?.confidenza,
+      duplicatiFile:  item.data?.duplicatiFile,
+      _pdfUrl:        item.pdfUrl,
+      _pdfFile:       item._file,
+      _queueId:       item.id,
+    });
+  }
 
   async function handleSave(form) {
     const fatto = editing?.id
       ? await fattiV2.aggiorna(editing.id, form)
       : await fattiV2.crea(form);
+
+    // Auto-upload del file originale dalla coda
+    if (!editing?.id && editing?._pdfFile) {
+      try { await fattiV2.uploadPdf(fatto.id, editing._pdfFile); }
+      catch { /* non bloccante */ }
+    }
+
     await load();
     return fatto;
   }
 
+  async function handleDelete(fatto) {
+    try {
+      await fattiV2.elimina(fatto.id);
+      await load();
+    } catch (e) { setErr("Eliminazione fallita: " + e.message); }
+  }
+
   const setFiltro = k => e => setFiltri(f => ({ ...f, [k]: e.target.value }));
+
+  const totali = fatti
+    ? {
+        spese:   fatti.filter(f => f.tipo === "spesa")  .reduce((s, f) => s + (f.importoNetto ?? f.importo), 0),
+        entrate: fatti.filter(f => f.tipo === "entrata").reduce((s, f) => s + (f.importoNetto ?? f.importo), 0),
+      }
+    : null;
 
   return (
     <div>
-      {/* Toolbar */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-        <select className="inp" value={filtri.tipo} onChange={setFiltro("tipo")} style={{ width: 130 }}>
+      {/* Barra filtri — riga 1: filtri server */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <select className="inp" value={filtri.tipo} onChange={setFiltro("tipo")} style={{ width: 120 }}>
           <option value="">Tutti i tipi</option>
           <option value="spesa">Spese</option>
           <option value="entrata">Entrate</option>
         </select>
-        <select className="inp" value={filtri.condominioId} onChange={setFiltro("condominioId")} style={{ width: 180 }}>
+        <select className="inp" value={filtri.condominioId} onChange={setFiltro("condominioId")} style={{ width: 165 }}>
           <option value="">Tutti i condomini</option>
           {condomini.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
         </select>
-        <select className="inp" value={filtri.immobileId} onChange={setFiltro("immobileId")} style={{ width: 180 }}>
+        <select className="inp" value={filtri.immobileId} onChange={setFiltro("immobileId")} style={{ width: 165 }}>
           <option value="">Tutti gli immobili</option>
           {immobili.map(i => <option key={i.id} value={i.id}>{i.nome}</option>)}
         </select>
+        <select className="inp" value={filtri.tipoSpesaId} onChange={setFiltro("tipoSpesaId")} style={{ width: 145 }}>
+          <option value="">Tutti i tipi spesa</option>
+          {tipologie.map(t => <option key={t.id} value={t.id}>{t.descrizione}</option>)}
+        </select>
         <input className="inp" type="month" value={filtri.periodoDa}
-               onChange={setFiltro("periodoDa")} style={{ width: 130 }}
-               placeholder="Da periodo" title="Periodo da" />
+               onChange={setFiltro("periodoDa")} style={{ width: 128 }}
+               title="Periodo da" />
         <input className="inp" type="month" value={filtri.periodoA}
-               onChange={setFiltro("periodoA")} style={{ width: 130 }}
-               placeholder="A periodo" title="Periodo a" />
+               onChange={setFiltro("periodoA")} style={{ width: 128 }}
+               title="Periodo a" />
+      </div>
+      {/* Barra filtri — riga 2: ricerca testo + soggetto + contatori */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
+        <input className="inp" placeholder="Cerca testo…" value={filtText}
+               onChange={e => setFiltText(e.target.value)} style={{ width: 190 }} />
+        <input className="inp" placeholder="Cerca soggetto…" value={soggettoIn}
+               onChange={e => setSoggettoIn(e.target.value)}
+               title="Filtra per soggetto pagante / incassante"
+               style={{ width: 190 }} />
         <span style={{ flex: 1 }} />
-        {fatti && (
-          <span style={{ fontSize: 12, color: "var(--text2)" }}>
-            {loading ? <i className="ti ti-loader-2 ti-spin" /> : `${fatti.length} mov.`}
+        {totali && (
+          <span style={{ fontSize: 12, color: "var(--text2)", display: "flex", gap: 12 }}>
+            {loading
+              ? <i className="ti ti-loader-2 ti-spin" />
+              : <>
+                  <span>
+                    {displayed.length}
+                    {displayed.length !== fatti.length && ` / ${fatti.length}`}
+                    {" voci"}
+                  </span>
+                  {filtri.tipo !== "entrata" && <span style={{ color: "#60a5fa" }}>▼ {fmtEur(totali.spese)}</span>}
+                  {filtri.tipo !== "spesa"   && <span style={{ color: "#4ade80" }}>▲ {fmtEur(totali.entrate)}</span>}
+                </>
+            }
           </span>
         )}
-        {/* PDF upload */}
-        <Btn variant="ghost" onClick={pdf.triggerUpload} disabled={pdf.state !== "idle"}>
-          {pdf.state === "checking"   && <><i className="ti ti-loader-2 ti-spin" /> Verifico hash…</>}
-          {pdf.state === "extracting" && <><i className="ti ti-loader-2 ti-spin" /> Estraggo…</>}
-          {pdf.state === "idle"       && <><i className="ti ti-file-upload" /> Carica PDF</>}
-          {pdf.state === "duplicate"  && <><i className="ti ti-alert-triangle" style={{color:"var(--red)"}} /> Duplicato</>}
+      </div>
+
+      {/* Toolbar azioni */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 12, justifyContent: "flex-end" }}>
+        <Btn variant="secondary" onClick={() => setShowImporta(true)} title="Importa estratto conto PDF/Excel/CSV">
+          <i className="ti ti-sparkles" /> Importa estratto
         </Btn>
-        <input ref={pdf.inputRef} type="file" accept="application/pdf"
-               style={{ display: "none" }} onChange={pdf.onFileChange} />
+        <Btn variant="ghost" onClick={() => pdfInputRef.current?.click()}>
+          <i className="ti ti-file-upload" /> Carica PDF
+        </Btn>
+        <input ref={pdfInputRef} type="file" accept="application/pdf,.pdf" multiple
+               style={{ display: "none" }}
+               onChange={e => { if (e.target.files?.length) addFiles(e.target.files); e.target.value = ""; }} />
         <Btn variant="ghost" onClick={() => setEditing({ tipo: "entrata" })}>
           <i className="ti ti-plus" /> Entrata
         </Btn>
@@ -737,10 +1419,23 @@ function MovimentiSection({ immobili, condomini, tipologie }) {
         </Btn>
       </div>
 
+      {/* Coda PDF */}
+      <PdfQueuePanel
+        queue={queue}
+        onValida={item => { setEditing(null); setTimeout(() => apriProssimo([item]), 0); }}
+        onRemove={removeItem}
+        onClear={clearQueue}
+        onProssimo={() => apriProssimo(queue)}
+      />
+
       {err && (
         <div style={{ color: "var(--red)", fontSize: 12, marginBottom: 12,
                       padding: "8px 12px", borderRadius: 8, background: "rgba(239,68,68,0.08)",
-                      border: "1px solid var(--red)" }}>{err}</div>
+                      border: "1px solid var(--red)", display: "flex", justifyContent: "space-between" }}>
+          {err}
+          <button onClick={() => setErr(null)} style={{ background: "none", border: "none",
+                                                         cursor: "pointer", color: "var(--red)" }}>✕</button>
+        </div>
       )}
 
       {!fatti && !err && (
@@ -749,33 +1444,73 @@ function MovimentiSection({ immobili, condomini, tipologie }) {
         </div>
       )}
 
-      {fatti?.length === 0 && !loading && (
+      {fatti && displayed.length === 0 && !loading && (
         <div style={{ textAlign: "center", padding: 48, color: "var(--text2)" }}>
           <i className="ti ti-coin-off" style={{ fontSize: 36, opacity: 0.35, display: "block", marginBottom: 12 }} />
           Nessun movimento trovato.
         </div>
       )}
 
-      {fatti && fatti.length > 0 && (
-        <div style={{ display: "grid", gap: 6 }}>
-          {fatti.map(f => (
-            <FattoCard
+      {/* Barra selezione bulk */}
+      {selIds.size > 0 && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10, marginBottom: 8,
+          padding: "9px 14px", borderRadius: 9,
+          background: "rgba(99,102,241,0.12)", border: "1px solid rgba(99,102,241,0.4)",
+        }}>
+          <i className="ti ti-checklist" style={{ color: "var(--accent)", fontSize: 16 }} />
+          <span style={{ fontWeight: 600, fontSize: 13 }}>
+            {selIds.size} {selIds.size === 1 ? "voce selezionata" : "voci selezionate"}
+          </span>
+          <Btn variant="primary" size="sm" onClick={() => setShowBulk(true)}>
+            <i className="ti ti-edit" /> Modifica massiva
+          </Btn>
+          <Btn variant="ghost" size="sm" onClick={() => setSelIds(new Set())}>
+            <i className="ti ti-x" /> Deseleziona
+          </Btn>
+        </div>
+      )}
+
+      {fatti && displayed.length > 0 && (
+        <div>
+          <SortableGridHeader
+            sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}
+            allSelected={selIds.size === displayed.length && displayed.length > 0}
+            someSelected={selIds.size > 0}
+            onSelectAll={toggleSelectAll}
+          />
+          {displayed.map(f => (
+            <FattoRow
               key={f.id}
               fatto={f}
+              selected={selIds.has(f.id)}
+              onToggle={toggleSelId}
               onSelect={setSelected}
               onEdit={fatto => { setEditing(fatto); setSelected(null); }}
+              onDelete={handleDelete}
             />
           ))}
         </div>
       )}
 
-      {/* Modale duplicato file */}
-      {pdf.dupInfo && (
+      {/* Blocco duplicati coda PDF — modale bloccante prima di aprire il form */}
+      {pendingQueueItem && (
         <DuplicatiModal
-          hash={pdf.dupInfo.hash}
-          duplicati={pdf.dupInfo.duplicati}
-          onProcedi={pdf.procediDuplicato}
-          onAnnulla={pdf.annullaDuplicato}
+          hash={pendingQueueItem.data?.hash}
+          duplicati={pendingQueueItem.data?.duplicatiFile}
+          onAnnulla={() => {
+            const item = pendingQueueItem;
+            setPendingQueueItem(null);
+            removeItem(item.id);
+            const remaining = queue.filter(q => q.id !== item.id);
+            if (remaining.some(q => q.stato === "pronto"))
+              setTimeout(() => apriProssimo(remaining), 150);
+          }}
+          onProcedi={() => {
+            const item = pendingQueueItem;
+            setPendingQueueItem(null);
+            apriEditingDaCoda(item);
+          }}
         />
       )}
 
@@ -784,7 +1519,17 @@ function MovimentiSection({ immobili, condomini, tipologie }) {
         <FattoModal
           initial={editing || undefined}
           onSave={handleSave}
-          onClose={saved => { setEditing(null); if (saved) load(); }}
+          onClose={saved => {
+            const queueId = editing?._queueId;
+            setEditing(null);
+            if (saved && queueId) {
+              const remaining = queue.filter(q => q.id !== queueId);
+              removeItem(queueId);
+              if (remaining.some(q => q.stato === "pronto"))
+                setTimeout(() => apriProssimo(remaining), 150);
+            }
+            if (saved) load();
+          }}
           immobili={immobili}
           condomini={condomini}
           tipologie={tipologie}
@@ -799,6 +1544,27 @@ function MovimentiSection({ immobili, condomini, tipologie }) {
           onEdit={() => { setEditing(selected); setSelected(null); }}
           onDeleted={load}
           onPdfChange={load}
+        />
+      )}
+
+      {/* Modale modifica massiva */}
+      {showBulk && (
+        <BulkEditModal
+          count={selIds.size}
+          immobili={immobili}
+          condomini={condomini}
+          tipologie={tipologie}
+          onApplica={handleBulkApplica}
+          onClose={() => setShowBulk(false)}
+        />
+      )}
+
+      {/* Modale importa estratto */}
+      {showImporta && (
+        <ImportazioneV2Modal
+          immobili={immobili}
+          onSaved={() => load()}
+          onClose={() => setShowImporta(false)}
         />
       )}
     </div>
@@ -1049,7 +1815,7 @@ export function EconomiaV2() {
   }, []);
 
   return (
-    <div style={{ maxWidth: 960, margin: "0 auto" }}>
+    <div style={{ maxWidth: 1200, margin: "0 auto" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
         <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Economia</h2>
         <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 12,

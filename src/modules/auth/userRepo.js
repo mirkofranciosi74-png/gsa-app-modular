@@ -164,4 +164,86 @@ export const userRepo = {
       }
     });
   },
+
+  // ── Restrizioni viewer v2 ───────────────────────────────────────────────────
+
+  async getImmobiliV2(userId) {
+    return query(
+      `SELECT i.id, i.nome, i.via, c.nome AS condominio_nome
+       FROM viewer_immobili_v2 vi
+       JOIN v2.immobile  i ON i.id = vi.immobile_id
+       JOIN v2.condominio c ON c.id = i.condominio_id
+       WHERE vi.user_id = $1
+       ORDER BY c.nome, i.nome`, [userId]
+    );
+  },
+
+  async setImmobiliV2(userId, ids) {
+    await transaction(async c => {
+      await c.query(`DELETE FROM viewer_immobili_v2 WHERE user_id=$1`, [userId]);
+      for (const id of ids) {
+        await c.query(
+          `INSERT INTO viewer_immobili_v2(user_id,immobile_id) VALUES($1,$2) ON CONFLICT DO NOTHING`,
+          [userId, id]
+        );
+      }
+    });
+  },
+
+  async getInquiliniV2(userId) {
+    return query(
+      `SELECT p.id, p.nome, p.cognome, p.ragione_sociale, p.tipo_persona
+       FROM viewer_inquilini_v2 vi
+       JOIN v2.persona p ON p.id = vi.persona_id
+       WHERE vi.user_id = $1
+       ORDER BY p.cognome NULLS LAST, p.nome`, [userId]
+    );
+  },
+
+  async setInquiliniV2(userId, ids) {
+    await transaction(async c => {
+      await c.query(`DELETE FROM viewer_inquilini_v2 WHERE user_id=$1`, [userId]);
+      for (const id of ids) {
+        await c.query(
+          `INSERT INTO viewer_inquilini_v2(user_id,persona_id) VALUES($1,$2) ON CONFLICT DO NOTHING`,
+          [userId, id]
+        );
+      }
+    });
+  },
+
+  async getProprietariV2(userId) {
+    return query(
+      `SELECT p.id, p.nome, p.cognome, p.ragione_sociale, p.tipo_persona
+       FROM viewer_proprietari_v2 vp
+       JOIN v2.persona p ON p.id = vp.persona_id
+       WHERE vp.user_id = $1
+       ORDER BY p.cognome NULLS LAST, p.nome`, [userId]
+    );
+  },
+
+  async setProprietariV2(userId, ids) {
+    await transaction(async c => {
+      await c.query(`DELETE FROM viewer_proprietari_v2 WHERE user_id=$1`, [userId]);
+      for (const id of ids) {
+        await c.query(
+          `INSERT INTO viewer_proprietari_v2(user_id,persona_id) VALUES($1,$2) ON CONFLICT DO NOTHING`,
+          [userId, id]
+        );
+      }
+    });
+  },
+
+  async getRestrizioniV2(userId) {
+    const [immobili, inquilini, proprietari] = await Promise.all([
+      this.getImmobiliV2(userId),
+      this.getInquiliniV2(userId),
+      this.getProprietariV2(userId),
+    ]);
+    return {
+      immobili:    immobili.map(r => r.id),
+      inquilini:   inquilini.map(r => r.id),
+      proprietari: proprietari.map(r => r.id),
+    };
+  },
 };

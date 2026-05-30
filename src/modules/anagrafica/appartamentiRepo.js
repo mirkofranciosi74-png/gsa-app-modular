@@ -22,6 +22,17 @@ export async function listAll() {
        LEFT JOIN v_saldo_componenti s ON s.componente_id = c.id
        WHERE c.appartamento_id = $1 ORDER BY c.nome`, [a.id]
     );
+    const pRows = await query(
+      `SELECT p.id, p.nome, p.cognome
+       FROM appartamento_proprietari ap
+       JOIN proprietari p ON p.id = ap.proprietario_id
+       WHERE ap.appartamento_id = $1
+         AND ap.proprietario_default = TRUE
+         AND ap.data_inizio <= CURRENT_DATE
+         AND (ap.data_fine IS NULL OR ap.data_fine >= CURRENT_DATE)
+       ORDER BY ap.data_inizio DESC LIMIT 1`, [a.id]
+    );
+    a.default_proprietario = pRows[0] || null;
   }
   return apps;
 }

@@ -1,13 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { personeV2, ruoliV2, condominiV2 } from "../api/apiV2.js";
 import { Btn, Badge, Modal, Field } from "../../components/ui.jsx";
-import { useAuth } from "../../context/AuthContext.jsx";
 
 // ── Costanti ───────────────────────────────────────────────────────────────────
-const RUOLO_LEGACY = {
-  proprietario: { label: "Proprietario", color: "blue"  },
-  componente:   { label: "Inquilino",    color: "green" },
-};
 const RUOLO_V2 = {
   proprietario: { label: "Proprietario", color: "blue"   },
   inquilino:    { label: "Inquilino",    color: "green"  },
@@ -34,71 +29,6 @@ function useDebounced(value, ms = 300) {
     return () => clearTimeout(t);
   }, [value, ms]);
   return dv;
-}
-
-// ── Banner quadratura (solo admin) ────────────────────────────────────────────
-function QuadraturaBanner() {
-  const [data, setData] = useState(null);
-  const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    personeV2.quadratura().then(setData).catch(() => {});
-  }, []);
-
-  if (!data) return null;
-
-  const ok = data.pass;
-  return (
-    <div style={{
-      background: ok ? "rgba(34,197,94,0.07)" : "rgba(239,68,68,0.07)",
-      border:     `1px solid ${ok ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.4)"}`,
-      borderRadius: 10, padding: "10px 16px", marginBottom: 16,
-    }}>
-      <button
-        onClick={() => setOpen(o => !o)}
-        style={{ width: "100%", display: "flex", alignItems: "center", gap: 10,
-                 background: "none", border: "none", cursor: "pointer", color: "var(--text)" }}
-      >
-        <i className={`ti ${ok ? "ti-circle-check" : "ti-alert-triangle"}`}
-           style={{ color: ok ? "var(--green)" : "var(--red)", fontSize: 18, flexShrink: 0 }} />
-        <span style={{ fontSize: 13, fontWeight: 600, flex: 1, textAlign: "left" }}>
-          Quadratura legacy↔v2:{" "}
-          {ok
-            ? `✅ Allineato — ${data.persone_totali} persone, ${data.migrati_proprietari} prop., ${data.migrati_componenti} inq.`
-            : `❌ Delta rilevato — espandi per dettagli`}
-        </span>
-        <i className={`ti ti-chevron-${open ? "up" : "down"}`} style={{ color: "var(--text2)" }} />
-      </button>
-
-      {open && (
-        <div style={{ marginTop: 12, display: "grid",
-                      gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 8 }}>
-          {[
-            ["Proprietari legacy", data.legacy_proprietari, null],
-            ["Migrati prop.",      data.migrati_proprietari, Number(data.legacy_proprietari) === Number(data.migrati_proprietari)],
-            ["Inquilini legacy",   data.legacy_componenti, null],
-            ["Migrati inq.",       data.migrati_componenti, Number(data.legacy_componenti) === Number(data.migrati_componenti)],
-            ["Persone v2 totali",  data.persone_totali, null],
-            ["Orfani prop.",       data.proprietari_orfani, Number(data.proprietari_orfani) === 0],
-            ["Orfani inq.",        data.componenti_orfani, Number(data.componenti_orfani) === 0],
-          ].map(([label, val, isOk]) => (
-            <div key={label} style={{
-              background: "var(--bg2)", borderRadius: 8, padding: "8px 12px",
-              border: `1px solid ${isOk === false ? "var(--red)" : isOk === true ? "var(--green)" : "var(--border)"}`,
-            }}>
-              <p style={{ fontSize: 10, color: "var(--text2)", margin: "0 0 2px", textTransform: "uppercase", letterSpacing: 0.5 }}>
-                {label}
-              </p>
-              <p style={{ fontSize: 20, fontWeight: 700, margin: 0,
-                          color: isOk === false ? "var(--red)" : isOk === true ? "var(--green)" : "var(--text)" }}>
-                {val}
-              </p>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
 }
 
 // ── Modale crea / modifica persona ────────────────────────────────────────────
@@ -234,8 +164,149 @@ function PersonaModal({ initial, onSave, onClose }) {
   );
 }
 
+// ── Modale conferma eliminazione persona ──────────────────────────────────────
+function EliminaPersonaModal({ persona, onDeleted, onClose }) {
+  const [fase,     setFase]     = useState("check"); // check | blockata | conferma
+  const [dep,      setDep]      = useState(null);
+  const [blockers, setBlockers] = useState([]);
+  const [deleting, setDeleting] = useState(false);
+  const [err,      setErr]      = useState(null);
+
+  useEffect(() => {
+    personeV2.dipendenze(persona.id)
+      .then(d => {
+        setDep(d);
+        const b = [];
+        if (d.nFatti         > 0) b.push(`${d.nFatti} fatto/i economico/i collegato/i`);
+        if (d.nRegoleRiparto > 0) b.push(`${d.nRegoleRiparto} regola/e di riparto`);
+        setBlockers(b);
+        setFase(b.length ? "blockata" : "conferma");
+      })
+      .catch(e => { setErr(e.message); setFase("conferma"); });
+  }, [persona.id]);
+
+  async function handleElimina() {
+    setDeleting(true);
+    setErr(null);
+    try {
+      await personeV2.elimina(persona.id);
+      onDeleted();
+    } catch (e) {
+      setErr(e.message);
+      setDeleting(false);
+    }
+  }
+
+  const nome = nomeCompleto(persona);
+
+  return (
+    <Modal
+      title="Elimina persona"
+      subtitle={nome}
+      onClose={onClose}
+      width={480}
+      footer={
+        fase === "conferma" ? (
+          <>
+            <Btn variant="ghost" onClick={onClose}>Annulla</Btn>
+            <Btn variant="primary" onClick={handleElimina} disabled={deleting}
+                 style={{ background: "var(--red)", borderColor: "var(--red)" }}>
+              {deleting ? "Elimino…" : "Elimina definitivamente"}
+            </Btn>
+          </>
+        ) : (
+          <Btn variant="ghost" onClick={onClose}>Chiudi</Btn>
+        )
+      }
+    >
+      {fase === "check" && (
+        <div style={{ textAlign: "center", padding: "24px 0", color: "var(--text2)" }}>
+          <i className="ti ti-loader-2 ti-spin" style={{ fontSize: 24 }} />
+          <p style={{ marginTop: 10, fontSize: 13 }}>Verifico dipendenze…</p>
+        </div>
+      )}
+
+      {fase === "blockata" && (
+        <div>
+          <div style={{
+            display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 16,
+            padding: "12px 16px", borderRadius: 8,
+            background: "rgba(239,68,68,0.08)", border: "1px solid var(--red)",
+          }}>
+            <i className="ti ti-lock" style={{ color: "var(--red)", fontSize: 20, flexShrink: 0, marginTop: 1 }} />
+            <div>
+              <p style={{ fontWeight: 700, fontSize: 14, margin: "0 0 6px", color: "var(--red)" }}>
+                Eliminazione bloccata
+              </p>
+              <p style={{ fontSize: 13, margin: "0 0 10px", color: "var(--text2)" }}>
+                Non è possibile eliminare <strong style={{ color: "var(--text)" }}>{nome}</strong> perché è
+                referenziata in dati contabili. Elimina prima le dipendenze o disattiva la persona.
+              </p>
+              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: "var(--text)" }}>
+                {blockers.map((b, i) => <li key={i}>{b}</li>)}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {fase === "conferma" && (
+        <div>
+          <div style={{
+            display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 16,
+            padding: "12px 16px", borderRadius: 8,
+            background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.3)",
+          }}>
+            <i className="ti ti-alert-triangle" style={{ color: "var(--red)", fontSize: 20, flexShrink: 0, marginTop: 1 }} />
+            <div>
+              <p style={{ fontWeight: 700, fontSize: 14, margin: "0 0 4px" }}>
+                Conferma eliminazione
+              </p>
+              <p style={{ fontSize: 13, margin: 0, color: "var(--text2)" }}>
+                Stai per eliminare definitivamente <strong style={{ color: "var(--text)" }}>{nome}</strong>.
+                Questa operazione non è reversibile.
+              </p>
+            </div>
+          </div>
+
+          {dep && (dep.nRuoli > 0 || dep.nCondomini > 0 || dep.nArchivio > 0) && (
+            <div style={{
+              padding: "10px 14px", borderRadius: 8, marginBottom: 12,
+              background: "rgba(234,179,8,0.08)", border: "1px solid rgba(234,179,8,0.35)",
+              fontSize: 13,
+            }}>
+              <p style={{ fontWeight: 600, margin: "0 0 8px", color: "#ca8a04" }}>
+                <i className="ti ti-info-circle" style={{ marginRight: 6 }} />
+                Dati che verranno eliminati con la persona:
+              </p>
+              <ul style={{ margin: 0, paddingLeft: 18, color: "var(--text2)", lineHeight: 1.8 }}>
+                {dep.nRuoli    > 0 && (
+                  <li>
+                    {dep.nRuoli} ruolo/i su immobili
+                    {dep.nRuoliAttivi > 0 && (
+                      <span style={{ color: "var(--red)", fontWeight: 600 }}>
+                        {" "}(di cui {dep.nRuoliAttivi} attivo/i)
+                      </span>
+                    )}
+                  </li>
+                )}
+                {dep.nCondomini > 0 && <li>{dep.nCondomini} associazione/i a condomini</li>}
+                {dep.nArchivio  > 0 && <li>{dep.nArchivio} documento/i in archivio</li>}
+              </ul>
+            </div>
+          )}
+
+          {err && (
+            <p style={{ color: "var(--red)", fontSize: 13, margin: "8px 0 0" }}>{err}</p>
+          )}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 // ── Pannello dettaglio con ruoli ───────────────────────────────────────────────
-function PersonaDettaglio({ persona, onEdit, onClose }) {
+function PersonaDettaglio({ persona, onEdit, onDelete, onClose }) {
   const [ruoli,    setRuoli]    = useState(null);
   const [errRuoli, setErrRuoli] = useState(null);
   const [condPC,   setCondPC]   = useState(null);
@@ -245,7 +316,6 @@ function PersonaDettaglio({ persona, onEdit, onClose }) {
   }, [persona.id]);
 
   const oggi      = new Date().toISOString().slice(0, 10);
-  const legacyRef = persona.legacyRefs || [];
   const isGiuridica = persona.tipoPersona === "giuridica";
 
   function SectionTitle({ children }) {
@@ -276,6 +346,12 @@ function PersonaDettaglio({ persona, onEdit, onClose }) {
       width={600}
       footer={<>
         <Btn variant="ghost" onClick={onClose}>Chiudi</Btn>
+        {onDelete && (
+          <Btn variant="ghost" onClick={onDelete}
+               style={{ color: "var(--red)", borderColor: "rgba(239,68,68,0.4)" }}>
+            <i className="ti ti-trash" /> Elimina
+          </Btn>
+        )}
         <Btn variant="primary" onClick={onEdit}>
           <i className="ti ti-pencil" /> Modifica
         </Btn>
@@ -312,27 +388,6 @@ function PersonaDettaglio({ persona, onEdit, onClose }) {
             <InfoField label="Note"          value={persona.note} />
           </div>
         </div>
-
-        {/* Legacy refs */}
-        {legacyRef.length > 0 && (
-          <div>
-            <SectionTitle>Collegamento legacy</SectionTitle>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {legacyRef.map((ref, i) => {
-                const info = RUOLO_LEGACY[ref.tipo] || { label: ref.tipo, color: "gray" };
-                return (
-                  <span key={i} style={{
-                    fontSize: 12, padding: "3px 10px", borderRadius: 8,
-                    background: "var(--bg3)", border: "1px solid var(--border)", color: "var(--text2)",
-                  }}>
-                    <i className="ti ti-link" style={{ marginRight: 4, fontSize: 10 }} />
-                    {info.label} #{ref.id}
-                  </span>
-                );
-              })}
-            </div>
-          </div>
-        )}
 
         {/* Associazioni condomini */}
         <div>
@@ -419,8 +474,7 @@ function PersonaDettaglio({ persona, onEdit, onClose }) {
 }
 
 // ── Card persona nella lista ───────────────────────────────────────────────────
-function PersonaCard({ persona, onSelect, onEdit }) {
-  const legacyRef = persona.legacyRefs || [];
+function PersonaCard({ persona, onSelect, onEdit, onDelete }) {
   const [hover, setHover] = useState(false);
 
   return (
@@ -447,10 +501,6 @@ function PersonaCard({ persona, onSelect, onEdit }) {
             {nomeCompleto(persona) || "—"}
           </span>
           {!persona.attivo && <Badge label="Inattiva" color="gray" />}
-          {legacyRef.map((ref, i) => {
-            const info = RUOLO_LEGACY[ref.tipo] || { label: ref.tipo, color: "gray" };
-            return <Badge key={i} label={info.label} color={info.color} />;
-          })}
         </div>
         {/* Contatti / identità */}
         <p style={{ fontSize: 12, color: "var(--text2)", margin: 0,
@@ -476,6 +526,10 @@ function PersonaCard({ persona, onSelect, onEdit }) {
         <Btn size="sm" variant="ghost" title="Modifica"
              onClick={e => { e.stopPropagation(); onEdit(persona); }}>
           <i className="ti ti-pencil" />
+        </Btn>
+        <Btn size="sm" variant="ghost" title="Elimina"
+             onClick={e => { e.stopPropagation(); onDelete(persona); }}>
+          <i className="ti ti-trash" style={{ color: "var(--red)" }} />
         </Btn>
         <Btn size="sm" variant="ghost" title="Dettaglio"
              onClick={e => { e.stopPropagation(); onSelect(persona); }}>
@@ -509,14 +563,14 @@ function EmptyState({ query, onCreate }) {
 
 // ── Tab principale ─────────────────────────────────────────────────────────────
 export function PersoneV2() {
-  const { user }                    = useAuth();
-  const [persone,  setPersone]      = useState(null);
-  const [query,    setQuery]        = useState("");
-  const [selected, setSelected]     = useState(null);
-  const [editing,  setEditing]      = useState(null);
-  const [showForm, setShowForm]     = useState(false);
-  const [loading,  setLoading]      = useState(false);
-  const [err,      setErr]          = useState(null);
+  const [persone,    setPersone]      = useState(null);
+  const [query,      setQuery]        = useState("");
+  const [selected,   setSelected]     = useState(null);
+  const [editing,    setEditing]      = useState(null);
+  const [showForm,   setShowForm]     = useState(false);
+  const [delTarget,  setDelTarget]    = useState(null);
+  const [loading,    setLoading]      = useState(false);
+  const [err,        setErr]          = useState(null);
 
   const dq = useDebounced(query, 300);
 
@@ -547,6 +601,11 @@ export function PersoneV2() {
     setShowForm(true);
   }
 
+  function openDelete(persona) {
+    setSelected(null);
+    setDelTarget(persona);
+  }
+
   return (
     <div style={{ maxWidth: 860, margin: "0 auto" }}>
 
@@ -571,9 +630,6 @@ export function PersoneV2() {
           <i className="ti ti-plus" /> Nuova Persona
         </Btn>
       </div>
-
-      {/* ── Quadratura (admin) ── */}
-      {user?.ruolo === "admin" && <QuadraturaBanner />}
 
       {/* ── Ricerca ── */}
       <div style={{ position: "relative", marginBottom: 16 }}>
@@ -628,6 +684,7 @@ export function PersoneV2() {
               persona={p}
               onSelect={setSelected}
               onEdit={openEdit}
+              onDelete={openDelete}
             />
           ))}
         </div>
@@ -638,6 +695,7 @@ export function PersoneV2() {
         <PersonaDettaglio
           persona={selected}
           onEdit={() => openEdit(selected)}
+          onDelete={() => openDelete(selected)}
           onClose={() => setSelected(null)}
         />
       )}
@@ -647,6 +705,14 @@ export function PersoneV2() {
           initial={editing}
           onSave={handleSave}
           onClose={() => { setShowForm(false); setEditing(null); }}
+        />
+      )}
+
+      {delTarget && (
+        <EliminaPersonaModal
+          persona={delTarget}
+          onDeleted={() => { setDelTarget(null); load(dq); }}
+          onClose={() => setDelTarget(null)}
         />
       )}
     </div>

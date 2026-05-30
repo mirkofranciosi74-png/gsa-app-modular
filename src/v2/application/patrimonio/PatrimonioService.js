@@ -38,8 +38,8 @@ export function makePatrimonioService({ condominioRepo, immobileRepo, ruoloRepo,
     },
 
     // ── Immobile ───────────────────────────────────────────────────────────────
-    listaImmobili({ condominioId, attivo } = {}) {
-      return immobileRepo.findAll({ condominioId, attivo });
+    listaImmobili({ condominioId, attivo, soggetto } = {}) {
+      return immobileRepo.findAll({ condominioId, attivo, soggetto });
     },
     trovaImmobile(id) {
       return immobileRepo.findById(id);
@@ -65,6 +65,9 @@ export function makePatrimonioService({ condominioRepo, immobileRepo, ruoloRepo,
     },
 
     // ── RuoloPersona ───────────────────────────────────────────────────────────
+    ruoliTutti() {
+      return ruoloRepo.listAll();
+    },
     ruoliPerImmobile(immobileId, filtri) {
       return ruoloRepo.listByImmobile(immobileId, filtri);
     },
@@ -80,13 +83,16 @@ export function makePatrimonioService({ condominioRepo, immobileRepo, ruoloRepo,
     rimuoviRuolo(id) {
       return ruoloRepo.remove(id);
     },
-    verificaQuote(immobileId, da, a) {
-      return ruoloRepo.verificaQuote(immobileId, da, a);
+    verificaQuote(immobileId) {
+      return ruoloRepo.verificaQuote(immobileId);
     },
 
     // ── PersonaCondominio ──────────────────────────────────────────────────────
     personeCondominio(condominioId, filtri) {
       return personaCondominioRepo.listByCondominio(condominioId, filtri);
+    },
+    proprietariImmobiliCondominio(condominioId, dataRif) {
+      return immobileRepo.proprietariByCondominio(condominioId, dataRif);
     },
     condominiBypersona(personaId) {
       return personaCondominioRepo.listByPersona(personaId);

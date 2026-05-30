@@ -35,13 +35,12 @@ const del  = path         => http("DELETE", path);
 
 // ── Anagrafica ─────────────────────────────────────────────────────────────────
 export const personeV2 = {
-  lista:          (q, attivo)       => get(`/persone${q ? `?q=${encodeURIComponent(q)}` : ""}${attivo !== undefined ? `${q ? "&" : "?"}attivo=${attivo}` : ""}`),
-  trovaPerId:     id                => get(`/persone/${id}`),
-  trovaPerLegacy: (tipo, legacyId)  => get(`/persone/legacy/${tipo}/${legacyId}`),
-  crea:           dati              => post("/persone", dati),
-  aggiorna:       (id, dati)        => put(`/persone/${id}`, dati),
-  aggiungiRef:    (id, tipo, lid)   => post(`/persone/${id}/legacy-ref`, { tipo, legacyId: lid }),
-  quadratura:     ()                => get("/persone/quadratura"),
+  lista:       (q, attivo) => get(`/persone${q ? `?q=${encodeURIComponent(q)}` : ""}${attivo !== undefined ? `${q ? "&" : "?"}attivo=${attivo}` : ""}`),
+  trovaPerId:  id          => get(`/persone/${id}`),
+  crea:        dati        => post("/persone", dati),
+  aggiorna:    (id, dati)  => put(`/persone/${id}`, dati),
+  dipendenze:  id          => get(`/persone/${id}/dipendenze`),
+  elimina:     id          => del(`/persone/${id}`),
 };
 
 // ── Patrimonio — Condomini ─────────────────────────────────────────────────────
@@ -61,6 +60,7 @@ export const condominiV2 = {
   associaPersona:     (id, dati)         => post(`/condomini/${id}/persone`, dati),
   aggiornaAssociazione:(id, assId, dati) => put(`/condomini/${id}/persone/${assId}`, dati),
   rimuoviAssociazione:(id, assId)        => del(`/condomini/${id}/persone/${assId}`),
+  proprietariImmobili:(id, dataRif)      => get(`/condomini/${id}/proprietari-immobili${dataRif ? `?dataRif=${dataRif}` : ""}`),
 };
 
 // ── Patrimonio — Immobili ──────────────────────────────────────────────────────
@@ -69,6 +69,7 @@ export const immobiliV2 = {
     const p = new URLSearchParams();
     if (filtri.condominioId) p.set("condominioId", filtri.condominioId);
     if (filtri.attivo !== undefined) p.set("attivo", filtri.attivo);
+    if (filtri.soggetto) p.set("soggetto", filtri.soggetto);
     return get(`/immobili${p.toString() ? "?" + p : ""}`);
   },
   trovaPerId:       id                    => get(`/immobili/${id}`),
@@ -83,13 +84,12 @@ export const immobiliV2 = {
     return get(`/immobili/${id}/ruoli${p.toString() ? "?" + p : ""}`);
   },
   verificaQuote:    (id, da, a)           => get(`/immobili/${id}/quote-verifica${da ? `?da=${da}&a=${a}` : ""}`),
-  totali:           (id, da, a)           => get(`/immobili/${id}/totali${da ? `?da=${da}&a=${a}` : ""}`),
-  quadratura:       id                    => get(`/immobili/${id}/quadratura`),
   regoleRiparto:    id                    => get(`/immobili/${id}/regole-riparto`),
 };
 
 // ── Patrimonio — Ruoli ─────────────────────────────────────────────────────────
 export const ruoliV2 = {
+  tutti:       ()                 => get("/ruoli"),
   perPersona:  personaId          => get(`/ruoli/persone/${personaId}/ruoli`),
   crea:        dati               => post("/ruoli", dati),
   aggiorna:    (id, dati)         => put(`/ruoli/${id}`, dati),
@@ -105,8 +105,9 @@ export const fattiV2 = {
   },
   trovaPerId: id => get(`/fatti/${id}`),
   crea:       dati => post("/fatti", dati),
-  aggiorna:   (id, dati) => put(`/fatti/${id}`, dati),
-  elimina:    id   => del(`/fatti/${id}`),
+  aggiorna:       (id, dati)   => put(`/fatti/${id}`, dati),
+  aggiornaBulk:   (ids, dati)  => put("/fatti/bulk", { ids, ...dati }),
+  elimina:        id           => del(`/fatti/${id}`),
 
   // Deduplication
   duplicatiDati: (filtri = {}) => {
@@ -166,21 +167,181 @@ export const tipologieV2 = {
     Object.entries(filtri).forEach(([k, v]) => { if (v !== undefined && v !== "") p.set(k, v); });
     return get(`/tipologie${p.toString() ? "?" + p : ""}`);
   },
-  trovaPerId: id     => get(`/tipologie/${id}`),
-  crea:       dati   => post("/tipologie", dati),
+  trovaPerId: id         => get(`/tipologie/${id}`),
+  uso:        id         => get(`/tipologie/${id}/uso`),
+  crea:       dati       => post("/tipologie", dati),
   aggiorna:   (id, dati) => put(`/tipologie/${id}`, dati),
-  elimina:    id     => del(`/tipologie/${id}`),
+  elimina:    id         => del(`/tipologie/${id}`),
 };
 
 // ── Riparto ────────────────────────────────────────────────────────────────────
 export const ripartoV2 = {
   calcola:          dati           => post("/riparto/calcola", dati),
-  creaRegola:       dati           => post("/riparto/regole", dati),
-  aggiungiDettaglio:(id, dati)     => post(`/riparto/regole/${id}/dettagli`, dati),
-  rimuoviRegola:    id             => del(`/riparto/regole/${id}`),
+  creaRegolaCoppia: dati           => post("/riparto/regole/coppia", dati),
+
+  // Regole appartamento (proprietari / inquilini)
+  listaRegole:            (immobileId, target) => {
+    const p = new URLSearchParams({ immobileId });
+    if (target) p.set("target", target);
+    return get(`/riparto/regole?${p}`);
+  },
+  creaRegola:             dati       => post("/riparto/regole", dati),
+  aggiornaRegola:         (id, dati) => put(`/riparto/regole/${id}`, dati),
+  aggiungiDettaglio:      (id, dati) => post(`/riparto/regole/${id}/dettagli`, dati),
+  rimuoviRegola:          id         => del(`/riparto/regole/${id}`),
+
+  // Regole condominio → appartamenti
+  listaRegoleCondominio:          condominioId => get(`/riparto/regole-condominio?condominioId=${condominioId}`),
+  creaRegolaCondominio:           dati         => post("/riparto/regole-condominio", dati),
+  aggiornaRegolaCondominio:       (id, dati)   => put(`/riparto/regole-condominio/${id}`, dati),
+  aggiungiDettaglioCondominio:    (id, dati)   => post(`/riparto/regole-condominio/${id}/dettagli`, dati),
+  rimuoviRegolaCondominio:        id           => del(`/riparto/regole-condominio/${id}`),
+};
+
+// ── Dashboard v2 ──────────────────────────────────────────────────────────────
+export const dashboardV2 = {
+  get:         () => get("/griglia/dashboard"),
+  proprietari: () => get("/griglia/dashboard/proprietari"),
+  stats:       () => get("/griglia/dashboard/stats"),
+  recenti:     () => get("/griglia/dashboard/recenti"),
+};
+
+// ── Griglia Economica v2 ───────────────────────────────────────────────────────
+export const grigliav2 = {
+  inquilini: (filtri = {}) => {
+    const p = new URLSearchParams();
+    Object.entries(filtri).forEach(([k, v]) => { if (v != null && v !== "") p.set(k, v); });
+    return get(`/griglia/inquilini?${p}`);
+  },
+  proprietari: (filtri = {}) => {
+    const p = new URLSearchParams();
+    Object.entries(filtri).forEach(([k, v]) => { if (v != null && v !== "") p.set(k, v); });
+    return get(`/griglia/proprietari?${p}`);
+  },
+
+  downloadExcel: async (filtri = {}) => {
+    const p = new URLSearchParams();
+    Object.entries(filtri).forEach(([k, v]) => { if (v != null && v !== "") p.set(k, v); });
+    const token = localStorage.getItem("gsa_token");
+    const res = await fetch(BASE + `/griglia/export-excel?${p}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    const cd   = res.headers.get("Content-Disposition") || "";
+    const match = cd.match(/filename="([^"]+)"/);
+    a.href = url;
+    a.download = match ? match[1] : `griglia_v2.xlsx`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  },
+
+  downloadZip: async (filtri = {}) => {
+    const p = new URLSearchParams();
+    Object.entries(filtri).forEach(([k, v]) => { if (v != null && v !== "") p.set(k, v); });
+    const token = localStorage.getItem("gsa_token");
+    const res = await fetch(BASE + `/griglia/export-zip?${p}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    const cd   = res.headers.get("Content-Disposition") || "";
+    const match = cd.match(/filename="([^"]+)"/);
+    a.href = url;
+    a.download = match ? match[1] : `griglia_v2.zip`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  },
+};
+
+// ── Importazione v2 ───────────────────────────────────────────────────────────
+export const importazioneV2 = {
+  immobili:       ()            => get("/importazione/immobili"),
+  parse: async (file) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(BASE + "/importazione/parse", {
+      method: "POST", headers: authHeader(), body: fd,
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw Object.assign(new Error(e.error || "Errore parse"), { status: res.status }); }
+    return res.json();
+  },
+  checkDuplicati: (righe)       => post("/importazione/check-duplicati", { righe }),
+  listRegole:     ()            => get("/importazione/regole"),
+  saveRegola:     dati          => post("/importazione/regole", dati),
+  updateRegola:   (id, dati)    => put(`/importazione/regole/${id}`, dati),
+  deleteRegola:   id            => del(`/importazione/regole/${id}`),
+};
+
+// ── Report v2 ─────────────────────────────────────────────────────────────────
+export const reportV2 = {
+  genera:  params => post("/report/genera", { params }),
+  list:    ()     => get("/report"),
+  get:     id     => get(`/report/${id}`),
+  save:    d      => post("/report", d),
+  delete:  id     => del(`/report/${id}`),
+  downloadPdf: (b64, name = "report.pdf") => {
+    const link = document.createElement("a");
+    link.href = `data:application/pdf;base64,${b64}`;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  },
 };
 
 // ── Admin ──────────────────────────────────────────────────────────────────────
 export const adminV2 = {
-  migrationStatus: () => get("/migration-status"),
+  verificaCoerenza:  () => get("/admin/verifica-coerenza"),
+  backfillHash:      () => post("/admin/backfill-hash", {}),
+  backfillSpeseProp: () => post("/admin/backfill-spese-prop", {}),
+};
+
+// ── Archivio documentale v2 ───────────────────────────────────────────────────
+export const archivioTipiV2 = {
+  list:   ()       => get("/archivio-tipi"),
+  create: d        => post("/archivio-tipi", d),
+  update: (id, d)  => put(`/archivio-tipi/${id}`, d),
+  delete: id       => del(`/archivio-tipi/${id}`),
+};
+
+export const archivioV2 = {
+  list: (f = {}) => {
+    const qs = new URLSearchParams(
+      Object.fromEntries(Object.entries(f).filter(([, v]) => v))
+    ).toString();
+    return get(`/archivio${qs ? "?" + qs : ""}`);
+  },
+  get:     id      => get(`/archivio/${id}`),
+  update:  (id, d) => put(`/archivio/${id}`, d),
+  delete:  id      => del(`/archivio/${id}`),
+  fileUrl: id      => `${BASE}/archivio/${id}/file`,
+
+  checkHash: file => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return fetch(`${BASE}/archivio/check-hash`, {
+      method: "POST", body: fd,
+      headers: (() => { const t = localStorage.getItem("gsa_token"); return t ? { Authorization: `Bearer ${t}` } : {}; })(),
+    }).then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); });
+  },
+
+  upload: (file, { tipDocId, note, validita_da, validita_a, associazioni = [] }) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    if (tipDocId)    fd.append("tipo_documento_id", tipDocId);
+    if (note)        fd.append("note", note);
+    if (validita_da) fd.append("validita_da", validita_da);
+    if (validita_a)  fd.append("validita_a", validita_a);
+    if (associazioni.length) fd.append("associazioni", JSON.stringify(associazioni));
+    const token = localStorage.getItem("gsa_token");
+    return fetch(`${BASE}/archivio/upload`, {
+      method: "POST", body: fd,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    }).then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); });
+  },
 };

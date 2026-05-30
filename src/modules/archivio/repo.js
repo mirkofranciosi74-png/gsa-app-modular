@@ -120,25 +120,29 @@ export async function getDocumento(id) {
   return { ...rows[0], associazioni: assocs };
 }
 
-export async function createDocumento({ tipo_documento_id, nome_file, file_hash, mime_type, estensione, note }) {
+export async function createDocumento({ tipo_documento_id, nome_file, file_hash, mime_type, estensione, note, validita_da, validita_a }) {
   const rows = await query(
     `INSERT INTO archivio_documenti
-       (tipo_documento_id, nome_file, file_hash, mime_type, estensione, note)
-     VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+       (tipo_documento_id, nome_file, file_hash, mime_type, estensione, note, validita_da, validita_a)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
     [tipo_documento_id || null, nome_file, file_hash || null,
-     mime_type || null, estensione || null, note || null]
+     mime_type || null, estensione || null, note || null,
+     validita_da || null, validita_a || null]
   );
   return rows[0];
 }
 
-export async function updateDocumento(id, { tipo_documento_id, note, nome_file }) {
+export async function updateDocumento(id, { tipo_documento_id, note, nome_file, validita_da, validita_a }) {
   const rows = await query(
     `UPDATE archivio_documenti
      SET tipo_documento_id = $1,
          note              = $2,
-         nome_file         = CASE WHEN $3::text IS NOT NULL THEN $3 ELSE nome_file END
+         nome_file         = CASE WHEN $3::text IS NOT NULL THEN $3 ELSE nome_file END,
+         validita_da       = $5,
+         validita_a        = $6
      WHERE id=$4 RETURNING *`,
-    [tipo_documento_id || null, note || null, nome_file || null, id]
+    [tipo_documento_id || null, note || null, nome_file || null, id,
+     validita_da || null, validita_a || null]
   );
   return rows[0] || null;
 }

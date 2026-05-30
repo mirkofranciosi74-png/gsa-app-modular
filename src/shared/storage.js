@@ -75,6 +75,7 @@ if (!existsSync(ARCHIVIO_PATH)) {
 }
 
 export function salvaArchivio(docId, ext, buffer) {
+  if (!existsSync(ARCHIVIO_PATH)) mkdirSync(ARCHIVIO_PATH, { recursive: true });
   const filePath = join(ARCHIVIO_PATH, `${docId}${ext}`);
   writeFileSync(filePath, buffer);
   return filePath;

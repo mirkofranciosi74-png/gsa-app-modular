@@ -5,28 +5,31 @@ export const RUOLI = Object.freeze(["proprietario", "inquilino", "garante", "con
 export class RuoloPersona {
   constructor({
     id, persona_id, immobile_id, ruolo, validita_da, validita_a,
-    quota, quota_affitto, caparra, default_flag = false,
+    quota, quota_affitto, caparra,
+    default_flag = false, default_pagante = false, default_incassante = false,
     persona_nome, persona_cognome, immobile_nome, condominio_nome,
   }) {
     if (!persona_id)          throw new ValidationError("personaId obbligatorio");
     if (!immobile_id)         throw new ValidationError("immobileId obbligatorio");
     if (!RUOLI.includes(ruolo)) throw new ValidationError(`ruolo deve essere uno di: ${RUOLI.join(", ")}`);
 
-    this.id            = id;
-    this.personaId     = persona_id;
-    this.immobileId    = immobile_id;
-    this.ruolo         = ruolo;
-    this.validitaDa    = validita_da   || null;
-    this.validitaA     = validita_a    || null;
-    this.quota         = quota         != null ? Number(quota)         : null;
-    this.quotaAffitto  = quota_affitto != null ? Number(quota_affitto) : null;
-    this.caparra       = caparra       != null ? Number(caparra)       : null;
-    this.defaultFlag   = Boolean(default_flag);
+    this.id               = id;
+    this.personaId        = persona_id;
+    this.immobileId       = immobile_id;
+    this.ruolo            = ruolo;
+    this.validitaDa       = validita_da   || null;
+    this.validitaA        = validita_a    || null;
+    this.quota            = quota         != null ? Number(quota)         : null;
+    this.quotaAffitto     = quota_affitto != null ? Number(quota_affitto) : null;
+    this.caparra          = caparra       != null ? Number(caparra)       : null;
+    this.defaultFlag      = Boolean(default_flag);
+    this.defaultPagante   = Boolean(default_pagante);
+    this.defaultIncassante= Boolean(default_incassante);
     // join fields (read-only)
-    this.personaNome     = persona_nome     || null;
-    this.personaCognome  = persona_cognome  || null;
-    this.immobileNome    = immobile_nome    || null;
-    this.condominioNome  = condominio_nome  || null;
+    this.personaNome      = persona_nome     || null;
+    this.personaCognome   = persona_cognome  || null;
+    this.immobileNome     = immobile_nome    || null;
+    this.condominioNome   = condominio_nome  || null;
   }
 
   isAttivo(dataRif = new Date()) {
@@ -47,8 +50,10 @@ export class RuoloPersona {
       quota:         this.quota,
       quotaAffitto:  this.quotaAffitto,
       caparra:       this.caparra,
-      defaultFlag:   this.defaultFlag,
-      personaNome:   this.personaNome,
+      defaultFlag:        this.defaultFlag,
+      defaultPagante:     this.defaultPagante,
+      defaultIncassante:  this.defaultIncassante,
+      personaNome:        this.personaNome,
       personaCognome:this.personaCognome,
       immobileNome:  this.immobileNome,
       condominioNome:this.condominioNome,

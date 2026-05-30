@@ -9,7 +9,10 @@ frontend/dist/
 frontend/.env
 
 # Storage (PDF, allegati, archivio) — mai committare file utenti
-storage/
+storage/pdf/*
+!storage/pdf/.gitkeep
+storage/archivio/*
+!storage/archivio/.gitkeep
 
 # Backup database
 backups/*

@@ -28,6 +28,11 @@ export function makeTipologiaRoutes({ economiaService }) {
     res.json(t);
   }));
 
+  router.get("/:id/uso", h(async (req, res) => {
+    const count = await economiaService.contaUsoTipologia(req.params.id);
+    res.json({ count });
+  }));
+
   router.delete("/:id", requireRole("admin"), h(async (req, res) => {
     await economiaService.rimuoviTipologia(req.params.id);
     res.status(204).end();

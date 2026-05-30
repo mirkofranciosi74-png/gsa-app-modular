@@ -37,6 +37,11 @@ export function makeCondominioRoutes({ patrimonioService }) {
     res.status(204).end();
   }));
 
+  // ── Proprietari di tutti gli immobili del condominio (per dropdown pagante/incassante) ──
+  router.get("/:id/proprietari-immobili", h(async (req, res) =>
+    res.json(await patrimonioService.proprietariImmobiliCondominio(req.params.id, req.query.dataRif))
+  ));
+
   // ── Persone associate al condominio ─────────────────────────────────────────
   router.get("/:id/persone", h(async (req, res) =>
     res.json(

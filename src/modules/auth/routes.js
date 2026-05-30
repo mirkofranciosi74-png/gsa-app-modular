@@ -245,3 +245,23 @@ authRouter.put("/users/:id/inquilini", requireAuth, requireRole("admin"), h(asyn
   await userRepo.setInquilini(req.params.id, req.body.ids || []);
   res.json({ ok: true });
 }));
+
+// ── Restrizioni viewer v2 ─────────────────────────────────────────────────────
+authRouter.get("/users/:id/restrizioni-v2", requireAuth, requireRole("admin"), h(async (req, res) => {
+  res.json(await userRepo.getRestrizioniV2(req.params.id));
+}));
+
+authRouter.put("/users/:id/immobili-v2", requireAuth, requireRole("admin"), h(async (req, res) => {
+  await userRepo.setImmobiliV2(req.params.id, req.body.ids || []);
+  res.json({ ok: true });
+}));
+
+authRouter.put("/users/:id/inquilini-v2", requireAuth, requireRole("admin"), h(async (req, res) => {
+  await userRepo.setInquiliniV2(req.params.id, req.body.ids || []);
+  res.json({ ok: true });
+}));
+
+authRouter.put("/users/:id/proprietari-v2", requireAuth, requireRole("admin"), h(async (req, res) => {
+  await userRepo.setProprietariV2(req.params.id, req.body.ids || []);
+  res.json({ ok: true });
+}));

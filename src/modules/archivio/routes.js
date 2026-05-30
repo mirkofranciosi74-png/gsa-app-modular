@@ -58,8 +58,11 @@ archivioRouter.post("/check-hash", up.single("file"), h(async (req, res) => {
   const ids    = rows.map(r => r.id);
   const assocs = await query(
     `SELECT aa.documento_id, aa.entita_tipo, aa.entita_id,
-            COALESCE(a.nome, c.nome||' '||COALESCE(c.cognome,''),
-                     pr.nome||' '||COALESCE(pr.cognome,'')) AS entita_nome
+            COALESCE(
+              a.nome,
+              c.nome||' '||COALESCE(c.cognome,''),
+              pr.nome||' '||COALESCE(pr.cognome,'')
+            ) AS entita_nome
      FROM archivio_associazioni aa
      LEFT JOIN appartamenti a  ON aa.entita_tipo='appartamento' AND a.id=aa.entita_id
      LEFT JOIN componenti   c  ON aa.entita_tipo='inquilino'    AND c.id=aa.entita_id
@@ -77,7 +80,7 @@ archivioRouter.post("/check-hash", up.single("file"), h(async (req, res) => {
 
 archivioRouter.post("/upload", up.single("file"), h(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "Nessun file" });
-  const { tipo_documento_id, note } = req.body;
+  const { tipo_documento_id, note, validita_da, validita_a } = req.body;
   const assocs = req.body.associazioni ? JSON.parse(req.body.associazioni) : [];
   const ext    = "." + (req.file.originalname.split(".").pop() || "bin");
   const hash   = createHash("md5").update(req.file.buffer).digest("hex");
@@ -85,14 +88,15 @@ archivioRouter.post("/upload", up.single("file"), h(async (req, res) => {
     tipo_documento_id: tipo_documento_id || null,
     nome_file:  req.file.originalname,
     file_hash:  hash, mime_type: req.file.mimetype, estensione: ext, note: note || null,
+    validita_da: validita_da || null, validita_a: validita_a || null,
   });
   salvaArchivio(doc.id, ext, req.file.buffer);
   if (assocs.length) await repo.setAssociazioni(doc.id, assocs);
   res.status(201).json(await repo.getDocumento(doc.id));
 }));
 archivioRouter.put("/:id", h(async (q, r) => {
-  const { tipo_documento_id, note, associazioni, nome_file } = q.body;
-  const d = await repo.updateDocumento(q.params.id, { tipo_documento_id, note, nome_file });
+  const { tipo_documento_id, note, associazioni, nome_file, validita_da, validita_a } = q.body;
+  const d = await repo.updateDocumento(q.params.id, { tipo_documento_id, note, nome_file, validita_da, validita_a });
   if (!d) return r.status(404).json({ error: "Non trovato" });
   if (associazioni !== undefined) await repo.setAssociazioni(q.params.id, associazioni);
   r.json(await repo.getDocumento(q.params.id));

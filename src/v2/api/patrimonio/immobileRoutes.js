@@ -9,10 +9,11 @@ export function makeImmobileRoutes({ patrimonioService, ripartoService, economia
   const router = Router();
 
   router.get("/", h(async (req, res) => {
-    const { condominioId, attivo } = req.query;
+    const { condominioId, attivo, soggetto } = req.query;
     const list = await patrimonioService.listaImmobili({
       condominioId,
       attivo: attivo !== undefined ? attivo === "true" : undefined,
+      soggetto: soggetto || undefined,
     });
     res.json(list.map(i => i.toJSON()));
   }));
@@ -51,9 +52,7 @@ export function makeImmobileRoutes({ patrimonioService, ripartoService, economia
   }));
 
   router.get("/:id/quote-verifica", requireRole("admin"), h(async (req, res) =>
-    res.json(await patrimonioService.verificaQuote(
-      req.params.id, req.query.da || null, req.query.a || null
-    ))
+    res.json(await patrimonioService.verificaQuote(req.params.id))
   ));
 
   // ── Economia dell'immobile ───────────────────────────────────────────────────

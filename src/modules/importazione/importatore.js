@@ -279,7 +279,17 @@ export async function matchRows(righe) {
       SELECT a.id, a.nome,
              json_agg(json_build_object(
                'id', c.id, 'nome', c.nome, 'cognome', c.cognome
-             ) ORDER BY c.cognome) FILTER (WHERE c.id IS NOT NULL) AS componenti
+             ) ORDER BY c.cognome) FILTER (WHERE c.id IS NOT NULL) AS componenti,
+             (SELECT row_to_json(x) FROM (
+               SELECT p.id, p.nome, p.cognome
+               FROM appartamento_proprietari ap
+               JOIN proprietari p ON p.id = ap.proprietario_id
+               WHERE ap.appartamento_id = a.id
+                 AND ap.proprietario_default = TRUE
+                 AND ap.data_inizio <= CURRENT_DATE
+                 AND (ap.data_fine IS NULL OR ap.data_fine >= CURRENT_DATE)
+               ORDER BY ap.data_inizio DESC LIMIT 1
+             ) x) AS default_proprietario
       FROM appartamenti a
       LEFT JOIN componenti c ON c.appartamento_id = a.id AND c.attivo = TRUE
       WHERE a.attivo = TRUE

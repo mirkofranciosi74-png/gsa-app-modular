@@ -8,6 +8,11 @@ import { requireRole } from "../../shared/authMiddleware.js";
 export function makeRuoloRoutes({ patrimonioService }) {
   const router = Router();
 
+  router.get("/", h(async (req, res) => {
+    const ruoli = await patrimonioService.ruoliTutti();
+    res.json(ruoli.map(r => r.toJSON()));
+  }));
+
   router.get("/persone/:personaId/ruoli", h(async (req, res) => {
     const ruoli = await patrimonioService.ruoliPerPersona(req.params.personaId);
     res.json(ruoli.map(r => r.toJSON()));

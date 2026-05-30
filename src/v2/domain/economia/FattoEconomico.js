@@ -11,7 +11,7 @@ const MESI_PER_PERIODICITA = {
 
 export class FattoEconomico {
   constructor({
-    id, immobile_id, condominio_id, persona_id, soggetto_pagante_id,
+    id, immobile_id, condominio_id, persona_id, soggetto_pagante_id, soggetto_incassante_id,
     tipo, tipo_spesa_id, importo, segno = 1,
     nome, descrizione, note, fornitore,
     numero_doc, numero_fattura,
@@ -24,16 +24,18 @@ export class FattoEconomico {
     legacy_tipo, legacy_id,
     created_at, updated_at,
     // join fields
-    immobile_nome, persona_nome, persona_cognome,
-    condominio_nome, soggetto_pagante_nome,
+    immobile_nome, immobile_tipologia, persona_nome, persona_cognome,
+    condominio_nome,
+    soggetto_pagante_nome, soggetto_pagante_cognome,
+    soggetto_incassante_nome, soggetto_incassante_cognome,
     tipo_spesa_desc, tipo_spesa_cat,
   }) {
     if (!immobile_id && !condominio_id)
       throw new ValidationError("immobileId o condominioId obbligatorio");
     if (!TIPI_FATTO.includes(tipo))
       throw new ValidationError("tipo deve essere 'spesa' o 'entrata'");
-    if (importo == null || Number(importo) <= 0)
-      throw new ValidationError("importo deve essere > 0");
+    if (importo == null || Number(importo) < 0)
+      throw new ValidationError("importo deve essere >= 0");
     if (periodicita && !PERIODICITA_VALIDE.includes(periodicita))
       throw new ValidationError(`periodicita deve essere uno di: ${PERIODICITA_VALIDE.join(", ")}`);
 
@@ -41,7 +43,8 @@ export class FattoEconomico {
     this.immobileId         = immobile_id         || null;
     this.condominioId       = condominio_id        || null;
     this.personaId          = persona_id           || null;
-    this.soggettoPaganteId  = soggetto_pagante_id  || null;
+    this.soggettoPaganteId    = soggetto_pagante_id    || null;
+    this.soggettoIncassanteId = soggetto_incassante_id || null;
     this.tipo               = tipo;
     this.tipoSpesaId        = tipo_spesa_id        || null;
     this.importo            = Number(importo);
@@ -71,11 +74,15 @@ export class FattoEconomico {
     this.updatedAt          = updated_at;
     // join fields
     this.immobileNome       = immobile_nome        || null;
+    this.immobileTipologia  = immobile_tipologia   || null;
     this.personaNome        = persona_nome         || null;
     this.personaCognome     = persona_cognome      || null;
-    this.condominioNome     = condominio_nome      || null;
-    this.soggettoPaganteNome = soggetto_pagante_nome || null;
-    this.tipoSpesaDesc      = tipo_spesa_desc      || null;
+    this.condominioNome          = condominio_nome           || null;
+    this.soggettoPaganteNome     = [soggetto_pagante_cognome, soggetto_pagante_nome]
+                                     .filter(Boolean).join(" ") || null;
+    this.soggettoIncassanteNome  = [soggetto_incassante_cognome, soggetto_incassante_nome]
+                                     .filter(Boolean).join(" ") || null;
+    this.tipoSpesaDesc           = tipo_spesa_desc           || null;
     this.tipoSpesaCat       = tipo_spesa_cat       || null;
   }
 
@@ -107,12 +114,15 @@ export class FattoEconomico {
       id:                  this.id,
       immobileId:          this.immobileId,
       immobileNome:        this.immobileNome,
+      immobileTipologia:   this.immobileTipologia,
       condominioId:        this.condominioId,
       condominioNome:      this.condominioNome,
       personaId:           this.personaId,
       personaNome:         [this.personaCognome, this.personaNome].filter(Boolean).join(" ") || this.personaNome,
-      soggettoPaganteId:   this.soggettoPaganteId,
-      soggettoPaganteNome: this.soggettoPaganteNome,
+      soggettoPaganteId:     this.soggettoPaganteId,
+      soggettoPaganteNome:   this.soggettoPaganteNome,
+      soggettoIncassanteId:  this.soggettoIncassanteId,
+      soggettoIncassanteNome:this.soggettoIncassanteNome,
       tipo:                this.tipo,
       tipoSpesaId:         this.tipoSpesaId,
       tipoSpesaDesc:       this.tipoSpesaDesc,

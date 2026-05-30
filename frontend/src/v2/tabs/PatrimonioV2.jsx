@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { condominiV2, immobiliV2, ruoliV2, personeV2 } from "../api/apiV2.js";
 import { Btn, Badge, Modal, Field } from "../../components/ui.jsx";
 
@@ -19,6 +19,21 @@ const RUOLO_PC_INFO = {
   delegato:       { label: "Delegato",       color: "yellow" },
   altro:          { label: "Altro",          color: "gray"   },
 };
+
+const TIPOLOGIE = [
+  { value: "appartamento",        label: "Appartamento" },
+  { value: "villa",               label: "Villa" },
+  { value: "villetta",            label: "Villetta" },
+  { value: "box",                 label: "Box / Garage" },
+  { value: "posto_auto",          label: "Posto auto" },
+  { value: "ufficio",             label: "Ufficio" },
+  { value: "locale_commerciale",  label: "Locale commerciale" },
+  { value: "magazzino",           label: "Magazzino" },
+  { value: "terreno",             label: "Terreno" },
+  { value: "cantina",             label: "Cantina" },
+  { value: "altro",               label: "Altro" },
+];
+const TIPOLOGIA_LABEL = Object.fromEntries(TIPOLOGIE.map(t => [t.value, t.label]));
 
 function oggi() { return new Date().toISOString().slice(0, 10); }
 function isAttivoRuolo(r) {
@@ -183,7 +198,7 @@ function ImmobileModal({ initial, condomini, onSave, onClose }) {
   const [form, setForm] = useState({
     nome: "", codice: "", via: "", citta: "", cap: "",
     superficie: "", percentualeCondominio: "", millesimiCondominio: "",
-    note: "", validitaDa: "", validitaA: "",
+    tipologia: "", note: "", validitaDa: "", validitaA: "",
     ...initial,
     condominioId: initial?.condominioId || "",
   });
@@ -254,6 +269,12 @@ function ImmobileModal({ initial, condomini, onSave, onClose }) {
                    placeholder="es. 125" />
           </Field>
         </div>
+        <Field label="Tipologia">
+          <select className="inp" value={form.tipologia || ""} onChange={set("tipologia")}>
+            <option value="">— Nessuna —</option>
+            {TIPOLOGIE.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+        </Field>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <Field label="Validità da">
             <input className="inp" type="date" value={form.validitaDa || ""} onChange={set("validitaDa")} />
@@ -276,13 +297,15 @@ function RuoloModal({ initial, immobileId, onSave, onClose }) {
   const [persone,  setPersone]  = useState([]);
   const [queryP,   setQueryP]   = useState(initial ? `${initial.personaCognome || ""} ${initial.personaNome || ""}`.trim() : "");
   const [form, setForm] = useState({
-    personaId:    initial?.personaId    || "",
-    ruolo:        initial?.ruolo        || "inquilino",
-    validitaDa:   initial?.validitaDa   || "",
-    validitaA:    initial?.validitaA    || "",
-    quota:        initial?.quota        ?? "",
-    quotaAffitto: initial?.quotaAffitto ?? "",
-    caparra:      initial?.caparra      ?? "",
+    personaId:         initial?.personaId         || "",
+    ruolo:             initial?.ruolo             || "inquilino",
+    validitaDa:        initial?.validitaDa        || "",
+    validitaA:         initial?.validitaA         || "",
+    quota:             initial?.quota             ?? "",
+    quotaAffitto:      initial?.quotaAffitto      ?? "",
+    caparra:           initial?.caparra           ?? "",
+    defaultPagante:    initial?.defaultPagante    ?? false,
+    defaultIncassante: initial?.defaultIncassante ?? false,
   });
   const [saving, setSaving] = useState(false);
   const [err,    setErr]    = useState(null);
@@ -301,9 +324,14 @@ function RuoloModal({ initial, immobileId, onSave, onClose }) {
     if (!form.personaId) { setErr("Seleziona una persona"); return; }
     setSaving(true);
     try {
-      await onSave({ ...form, immobileId, quota: form.quota !== "" ? form.quota : null,
-                     quotaAffitto: form.quotaAffitto !== "" ? form.quotaAffitto : null,
-                     caparra: form.caparra !== "" ? form.caparra : null });
+      await onSave({ ...form, immobileId,
+                     validitaDa:        form.validitaDa        || null,
+                     validitaA:         form.validitaA         || null,
+                     quota:             form.quota        !== "" ? form.quota        : null,
+                     quotaAffitto:      form.quotaAffitto !== "" ? form.quotaAffitto : null,
+                     caparra:           form.caparra      !== "" ? form.caparra      : null,
+                     defaultPagante:    form.defaultPagante,
+                     defaultIncassante: form.defaultIncassante });
       onClose();
     } catch (e) { setErr(e.message); setSaving(false); }
   }
@@ -335,11 +363,6 @@ function RuoloModal({ initial, immobileId, onSave, onClose }) {
                                    cursor: "pointer", color: "var(--text)", fontSize: 13, textAlign: "left",
                                    borderBottom: "1px solid var(--border)" }}>
                     {nome}
-                    {p.legacyRefs?.map((r,i) => (
-                      <span key={i} style={{ marginLeft: 8, fontSize: 10, color: "var(--text2)" }}>
-                        {r.tipo === "proprietario" ? "prop." : "inq."}
-                      </span>
-                    ))}
                   </button>
                 );
               })}
@@ -372,18 +395,51 @@ function RuoloModal({ initial, immobileId, onSave, onClose }) {
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-          <Field label="Quota %" hint="es. 60">
+          <Field label="Quota" hint="quota millesimale">
             <input className="inp" type="number" min={0} max={100} step={0.01}
                    value={form.quota} onChange={setNum("quota")} />
           </Field>
-          <Field label="Quota affitto %">
-            <input className="inp" type="number" min={0} max={100} step={0.01}
+          <Field label="Quota affitto €" hint="canone mensile">
+            <input className="inp" type="number" min={0} step={0.01}
                    value={form.quotaAffitto} onChange={setNum("quotaAffitto")} />
           </Field>
           <Field label="Caparra €">
             <input className="inp" type="number" min={0} step={0.01}
                    value={form.caparra} onChange={setNum("caparra")} />
           </Field>
+        </div>
+
+        {/* Flag default pagante / incassante */}
+        <div style={{ background: "var(--bg3)", borderRadius: 8, padding: "10px 14px",
+                      display: "grid", gap: 8 }}>
+          <p style={{ fontSize: 11, fontWeight: 600, margin: 0, color: "var(--text2)",
+                      textTransform: "uppercase", letterSpacing: 0.4 }}>
+            Ruolo di default per i movimenti
+          </p>
+          <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontSize: 13 }}>
+            <input type="checkbox"
+                   checked={!!form.defaultPagante}
+                   onChange={e => setForm(f => ({ ...f, defaultPagante: e.target.checked }))}
+                   style={{ accentColor: "var(--accent)", width: 15, height: 15 }} />
+            <span>
+              <strong>Soggetto pagante default</strong>
+              <span style={{ color: "var(--text2)", marginLeft: 6 }}>
+                — paga le spese per l'immobile prima del riparto
+              </span>
+            </span>
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontSize: 13 }}>
+            <input type="checkbox"
+                   checked={!!form.defaultIncassante}
+                   onChange={e => setForm(f => ({ ...f, defaultIncassante: e.target.checked }))}
+                   style={{ accentColor: "var(--accent)", width: 15, height: 15 }} />
+            <span>
+              <strong>Soggetto incassante default</strong>
+              <span style={{ color: "var(--text2)", marginLeft: 6 }}>
+                — incassa le entrate per l'immobile prima del riparto
+              </span>
+            </span>
+          </label>
         </div>
       </div>
     </Modal>
@@ -496,15 +552,13 @@ function PersonaCondominioModal({ initial, condominioId, onSave, onClose }) {
 function ImmobileDettaglio({ immobile: initialImmobile, condomini, onEdit, onClose, onRuoliChange, onMoved }) {
   const [immobile,     setImmobile]     = useState(initialImmobile);
   const [ruoli,        setRuoli]        = useState(null);
-  const [totali,       setTotali]       = useState(null);
   const [quoteVerifica,setQuoteVerifica]= useState(null);
-  const [quadratura,   setQuadratura]   = useState(null);
   const [addRuolo,     setAddRuolo]     = useState(false);
   const [editRuolo,    setEditRuolo]    = useState(null);
   const [delRuoloId,   setDelRuoloId]   = useState(null);
   const [deleting,     setDeleting]     = useState(false);
-  const [openSection,  setOpenSection]  = useState("ruoli");
   const [sposta,       setSposta]       = useState(false);
+  const [mostraScaduti,setMostraScaduti]= useState(false);
   const [err,          setErr]          = useState(null);
 
   async function handleSposta(newCondominioId) {
@@ -524,22 +578,7 @@ function ImmobileDettaglio({ immobile: initialImmobile, condomini, onEdit, onClo
     } catch (e) { setErr(e.message); }
   }, [immobile.id]);
 
-  const loadTotali = useCallback(async () => {
-    try { setTotali(await immobiliV2.totali(immobile.id)); }
-    catch (e) { setErr(e.message); }
-  }, [immobile.id]);
-
-  const loadQuadratura = useCallback(async () => {
-    try { setQuadratura(await immobiliV2.quadratura(immobile.id)); }
-    catch (e) { setErr(e.message); }
-  }, [immobile.id]);
-
   useEffect(() => { loadRuoli(); }, [loadRuoli]);
-
-  useEffect(() => {
-    if (openSection === "totali" && !totali)         loadTotali();
-    if (openSection === "quadratura" && !quadratura) loadQuadratura();
-  }, [openSection, totali, quadratura, loadTotali, loadQuadratura]);
 
   async function handleSaveRuolo(form) {
     if (editRuolo) await ruoliV2.aggiorna(editRuolo.id, form);
@@ -555,21 +594,21 @@ function ImmobileDettaglio({ immobile: initialImmobile, condomini, onEdit, onClo
     finally { setDeleting(false); }
   }
 
-  // --- sezioni collassabili ---
-  function Section({ id, title, icon, children }) {
-    const isOpen = openSection === id;
+  // --- sezione collassabile ---
+  function Section({ title, icon, children }) {
+    const [open, setOpen] = useState(true);
     return (
       <div style={{ border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden", marginBottom: 10 }}>
-        <button onClick={() => setOpenSection(isOpen ? null : id)} style={{
+        <button onClick={() => setOpen(o => !o)} style={{
           width: "100%", display: "flex", alignItems: "center", gap: 10,
           padding: "11px 16px", background: "var(--bg3)", border: "none", cursor: "pointer",
           color: "var(--text)", fontSize: 13, fontWeight: 600,
         }}>
           <i className={`ti ${icon}`} style={{ color: "var(--accent)", fontSize: 15 }} />
           <span style={{ flex: 1, textAlign: "left" }}>{title}</span>
-          <i className={`ti ti-chevron-${isOpen ? "up" : "down"}`} style={{ color: "var(--text2)" }} />
+          <i className={`ti ti-chevron-${open ? "up" : "down"}`} style={{ color: "var(--text2)" }} />
         </button>
-        {isOpen && <div style={{ padding: "14px 16px" }}>{children}</div>}
+        {open && <div style={{ padding: "14px 16px" }}>{children}</div>}
       </div>
     );
   }
@@ -621,7 +660,7 @@ function ImmobileDettaglio({ immobile: initialImmobile, condomini, onEdit, onClo
       </div>
 
       {/* ── RUOLI ── */}
-      <Section id="ruoli" title="Ruoli e persone" icon="ti-users">
+      <Section title="Ruoli e persone" icon="ti-users">
         {/* Quote verifica */}
         {quoteVerifica?.map((qv, i) => (
           <div key={i} style={{
@@ -634,14 +673,31 @@ function ImmobileDettaglio({ immobile: initialImmobile, condomini, onEdit, onClo
             <i className={`ti ${qv.ok ? "ti-circle-check" : "ti-alert-triangle"}`}
                style={{ color: qv.ok ? "var(--green)" : "var(--red)" }} />
             <span>
-              {qv.ruolo.charAt(0).toUpperCase() + qv.ruolo.slice(1)}:
-              {" "}{qv.nRuoli} ruolo{qv.nRuoli !== 1 ? "i" : ""},
-              {" "}quota totale {qv.sommaQuota.toFixed(2)}%
+              {qv.ruolo.charAt(0).toUpperCase() + qv.ruolo.slice(1)}:{" "}
+              {qv.nRuoliAttivi} attiv{qv.nRuoliAttivi !== 1 ? "i" : "o"}
+              {qv.nRuoliTotale > qv.nRuoliAttivi && ` (${qv.nRuoliTotale} totali)`},
+              {" "}quota totale attivi {qv.sommaQuota.toFixed(2)}%
               {!qv.ok && " — dovrebbe essere 100%"}
               {!qv.tutteValorizzate && " — alcune quote non valorizzate"}
             </span>
           </div>
         ))}
+
+        {/* Toggle mostra scaduti */}
+        {ruoli && ruoli.some(r => !isAttivoRuolo(r)) && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <button onClick={() => setMostraScaduti(v => !v)} style={{
+              display: "flex", alignItems: "center", gap: 6,
+              background: "none", border: "1px solid var(--border)", borderRadius: 6,
+              padding: "4px 10px", cursor: "pointer", fontSize: 12, color: "var(--text2)",
+            }}>
+              <i className={`ti ${mostraScaduti ? "ti-eye-off" : "ti-eye"}`} style={{ fontSize: 14 }} />
+              {mostraScaduti
+                ? `Nascondi scaduti (${ruoli.filter(r => !isAttivoRuolo(r)).length})`
+                : `Mostra scaduti (${ruoli.filter(r => !isAttivoRuolo(r)).length})`}
+            </button>
+          </div>
+        )}
 
         {/* Lista ruoli */}
         {!ruoli && <p style={{ color: "var(--text2)", fontSize: 13 }}>
@@ -654,7 +710,7 @@ function ImmobileDettaglio({ immobile: initialImmobile, condomini, onEdit, onClo
         )}
         {ruoli && ruoli.length > 0 && (
           <div style={{ display: "grid", gap: 6, marginBottom: 12 }}>
-            {ruoli.map(r => {
+            {ruoli.filter(r => mostraScaduti || isAttivoRuolo(r)).map(r => {
               const attivo = isAttivoRuolo(r);
               const info   = RUOLO_INFO[r.ruolo] || { label: r.ruolo, color: "gray" };
               return (
@@ -669,6 +725,8 @@ function ImmobileDettaglio({ immobile: initialImmobile, condomini, onEdit, onClo
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3, flexWrap: "wrap" }}>
                       <Badge label={info.label} color={info.color} />
                       {!attivo && <Badge label="Scaduto" color="gray" />}
+                      {r.defaultPagante    && <Badge label="★ Paga spese"   color="blue"   />}
+                      {r.defaultIncassante && <Badge label="★ Incassa"      color="green"  />}
                       <span style={{ fontSize: 13, fontWeight: 600 }}>
                         {[r.personaCognome, r.personaNome].filter(Boolean).join(" ")}
                       </span>
@@ -676,7 +734,8 @@ function ImmobileDettaglio({ immobile: initialImmobile, condomini, onEdit, onClo
                     <p style={{ fontSize: 11, color: "var(--text2)", margin: 0 }}>
                       {r.validitaDa && `dal ${r.validitaDa}`}
                       {r.validitaA  && ` al ${r.validitaA}`}
-                      {r.quota != null && ` · quota ${r.quota}%`}
+                      {r.quota != null && ` · quota ${r.quota}`}
+                      {r.quotaAffitto && ` · affitto ${fmtEur(r.quotaAffitto)}/mese`}
                       {r.caparra && ` · caparra ${fmtEur(r.caparra)}`}
                     </p>
                   </div>
@@ -698,95 +757,6 @@ function ImmobileDettaglio({ immobile: initialImmobile, condomini, onEdit, onClo
         <Btn variant="primary" size="sm" onClick={() => setAddRuolo(true)}>
           <i className="ti ti-plus" /> Assegna persona
         </Btn>
-      </Section>
-
-      {/* ── TOTALI ── */}
-      <Section id="totali" title="Totali economici" icon="ti-coin">
-        {!totali ? (
-          <p style={{ color: "var(--text2)", fontSize: 13 }}>
-            <i className="ti ti-loader-2 ti-spin" style={{ marginRight: 6 }} />Carico totali…
-          </p>
-        ) : totali.length === 0 ? (
-          <p style={{ color: "var(--text2)", fontSize: 13 }}>Nessun dato economico migrato per questo immobile.</p>
-        ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-            <thead>
-              <tr style={{ color: "var(--text2)", borderBottom: "1px solid var(--border)" }}>
-                <th style={{ textAlign: "left",  padding: "4px 8px" }}>Tipo</th>
-                <th style={{ textAlign: "left",  padding: "4px 8px" }}>Categoria</th>
-                <th style={{ textAlign: "right", padding: "4px 8px" }}>N.</th>
-                <th style={{ textAlign: "right", padding: "4px 8px" }}>Netto</th>
-                <th style={{ textAlign: "right", padding: "4px 8px" }}>Lordo</th>
-              </tr>
-            </thead>
-            <tbody>
-              {totali.map((r, i) => (
-                <tr key={i} style={{ borderBottom: "1px solid var(--border)" }}>
-                  <td style={{ padding: "6px 8px" }}>
-                    <Badge label={r.tipo} color={r.tipo === "entrata" ? "green" : "blue"} />
-                  </td>
-                  <td style={{ padding: "6px 8px", color: "var(--text2)" }}>
-                    {r.tipo_spesa || "—"}
-                  </td>
-                  <td style={{ padding: "6px 8px", textAlign: "right" }}>{r.n_fatti}</td>
-                  <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600 }}>
-                    {fmtEur(r.totale_netto)}
-                  </td>
-                  <td style={{ padding: "6px 8px", textAlign: "right", color: "var(--text2)" }}>
-                    {fmtEur(r.totale_lordo)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </Section>
-
-      {/* ── QUADRATURA ── */}
-      <Section id="quadratura" title="Quadratura legacy↔v2" icon="ti-checkup-list">
-        {!quadratura ? (
-          <p style={{ color: "var(--text2)", fontSize: 13 }}>
-            <i className="ti ti-loader-2 ti-spin" style={{ marginRight: 6 }} />Carico…
-          </p>
-        ) : (
-          <>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12,
-                          padding: "8px 12px", borderRadius: 8,
-                          background: quadratura.pass ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)",
-                          border: `1px solid ${quadratura.pass ? "rgba(34,197,94,0.3)" : "var(--red)"}` }}>
-              <i className={`ti ${quadratura.pass ? "ti-circle-check" : "ti-alert-triangle"}`}
-                 style={{ color: quadratura.pass ? "var(--green)" : "var(--red)" }} />
-              <span style={{ fontSize: 13, fontWeight: 600 }}>
-                {quadratura.pass ? "✅ Dati allineati" : "❌ Delta rilevato — verificare"}
-              </span>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
-              {[
-                ["Spese doc. (legacy)", quadratura.leg_spese_doc,  "Spese doc. (v2)", quadratura.v2_spese_doc,  quadratura.delta_spese_doc],
-                ["Spese prop.(legacy)", quadratura.leg_spese_prop, "Spese prop.(v2)", quadratura.v2_spese_prop, quadratura.delta_spese_prop],
-                ["Versamenti (legacy)", quadratura.leg_versamenti, "Versamenti (v2)", quadratura.v2_versamenti, quadratura.delta_versamenti],
-              ].map(([lLab, lVal, vLab, vVal, delta], i) => (
-                <div key={i} style={{ background: "var(--bg3)", borderRadius: 8, padding: "10px 12px",
-                                      border: `1px solid ${delta < 0.01 ? "var(--border)" : "var(--red)"}` }}>
-                  <p style={{ fontSize: 10, color: "var(--text2)", margin: "0 0 6px", textTransform: "uppercase", letterSpacing: 0.5 }}>
-                    {lLab.split("(")[0].trim()}
-                  </p>
-                  <p style={{ fontSize: 12, margin: "0 0 2px" }}>
-                    Legacy: <strong>{fmtEur(lVal)}</strong>
-                  </p>
-                  <p style={{ fontSize: 12, margin: "0 0 4px" }}>
-                    v2: <strong>{fmtEur(vVal)}</strong>
-                  </p>
-                  {delta >= 0.01 && (
-                    <p style={{ fontSize: 11, color: "var(--red)", margin: 0 }}>
-                      Δ {fmtEur(delta)}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </>
-        )}
       </Section>
 
       {/* Modali ruoli */}
@@ -910,25 +880,86 @@ function ImmobileCard({ im, condomini, onEdit, onDetail, onDeleted, onMoved, sho
   );
 }
 
+// ── Intestazione colonna ordinabile ──────────────────────────────────────────
+function SortTh({ label, k, sortKey, sortDir, onSort, style }) {
+  const active = sortKey === k;
+  return (
+    <th onClick={() => onSort(k)}
+        style={{ padding: "8px 10px", textAlign: "left", fontWeight: 600,
+                 fontSize: 11, color: active ? "var(--accent)" : "var(--text2)",
+                 cursor: "pointer", userSelect: "none", whiteSpace: "nowrap",
+                 borderBottom: "1px solid var(--border)", ...style }}>
+      {label}
+      {active
+        ? <i className={`ti ti-chevron-${sortDir === "asc" ? "up" : "down"}`}
+             style={{ marginLeft: 4, fontSize: 10 }} />
+        : <i className="ti ti-selector" style={{ marginLeft: 4, fontSize: 10, opacity: 0.35 }} />}
+    </th>
+  );
+}
+
 // ── Sezione Immobili ───────────────────────────────────────────────────────────
 function ImmobiliSection({ condomini }) {
-  const [immobili,  setImmobili]  = useState(null);
-  const [selected,  setSelected]  = useState(null);
-  const [editing,   setEditing]   = useState(null);
-  const [showForm,  setShowForm]  = useState(false);
-  const [filtCond,  setFiltCond]  = useState("");
-  const [loading,   setLoading]   = useState(false);
-  const [err,       setErr]       = useState(null);
+  const [immobili,     setImmobili]     = useState(null);
+  const [selected,     setSelected]     = useState(null);
+  const [editing,      setEditing]      = useState(null);
+  const [showForm,     setShowForm]     = useState(false);
+  const [filtCond,     setFiltCond]     = useState("");
+  const [filtText,     setFiltText]     = useState("");
+  const [soggettoIn,   setSoggettoIn]   = useState("");
+  const [filtSoggetto, setFiltSoggetto] = useState("");
+  const [sortKey,      setSortKey]      = useState("nome");
+  const [sortDir,      setSortDir]      = useState("asc");
+  const [loading,      setLoading]      = useState(false);
+  const [err,          setErr]          = useState(null);
+
+  // Debounce soggetto search (triggers API reload)
+  useEffect(() => {
+    const t = setTimeout(() => setFiltSoggetto(soggettoIn.trim()), 450);
+    return () => clearTimeout(t);
+  }, [soggettoIn]);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setErr(null);
     try {
-      setImmobili(await immobiliV2.lista(filtCond ? { condominioId: filtCond } : {}));
+      const params = {};
+      if (filtCond)      params.condominioId = filtCond;
+      if (filtSoggetto)  params.soggetto     = filtSoggetto;
+      setImmobili(await immobiliV2.lista(params));
     } catch (e) { setErr(e.message); }
     finally { setLoading(false); }
-  }, [filtCond]);
+  }, [filtCond, filtSoggetto]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Client-side text filter + sort
+  const displayed = useMemo(() => {
+    if (!immobili) return [];
+    let list = immobili;
+    if (filtText.trim()) {
+      const q = filtText.trim().toLowerCase();
+      list = list.filter(im =>
+        [im.nome, im.codice, im.via, im.citta, im.condominioNome,
+         im.tipologia ? TIPOLOGIA_LABEL[im.tipologia] : ""]
+          .some(f => f?.toLowerCase().includes(q))
+      );
+    }
+    return [...list].sort((a, b) => {
+      let va = a[sortKey] ?? "";
+      let vb = b[sortKey] ?? "";
+      if (typeof va === "string") va = va.toLowerCase();
+      if (typeof vb === "string") vb = vb.toLowerCase();
+      if (va < vb) return sortDir === "asc" ? -1 : 1;
+      if (va > vb) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+  }, [immobili, filtText, sortKey, sortDir]);
+
+  function toggleSort(key) {
+    if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc");
+    else { setSortKey(key); setSortDir("asc"); }
+  }
 
   async function handleSave(form) {
     if (editing?.id) await immobiliV2.aggiorna(editing.id, form);
@@ -942,19 +973,30 @@ function ImmobiliSection({ condomini }) {
     setShowForm(true);
   }
 
+  const thProps = { sortKey, sortDir, onSort: toggleSort };
+
   return (
     <div>
       {/* Toolbar */}
-      <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
         <select className="inp" value={filtCond} onChange={e => setFiltCond(e.target.value)}
-                style={{ maxWidth: 220 }}>
+                style={{ maxWidth: 200 }}>
           <option value="">Tutti i condomini</option>
           {condomini.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
         </select>
+        <input className="inp" placeholder="Cerca testo…" value={filtText}
+               onChange={e => setFiltText(e.target.value)}
+               style={{ maxWidth: 180 }} />
+        <input className="inp" placeholder="Cerca soggetto…" value={soggettoIn}
+               onChange={e => setSoggettoIn(e.target.value)}
+               title="Filtra per nome / cognome del soggetto associato"
+               style={{ maxWidth: 180 }} />
         <span style={{ flex: 1 }} />
         {immobili && (
           <span style={{ fontSize: 12, color: "var(--text2)" }}>
-            {loading ? <i className="ti ti-loader-2 ti-spin" /> : `${immobili.length} immobili`}
+            {loading
+              ? <i className="ti ti-loader-2 ti-spin" />
+              : `${displayed.length}${displayed.length !== immobili.length ? ` / ${immobili.length}` : ""} immobili`}
           </span>
         )}
         <Btn variant="primary" onClick={() => { setEditing(null); setShowForm(true); }}>
@@ -974,27 +1016,71 @@ function ImmobiliSection({ condomini }) {
         </div>
       )}
 
-      {immobili?.length === 0 && !loading && (
+      {immobili && displayed.length === 0 && !loading && (
         <div style={{ textAlign: "center", padding: 48, color: "var(--text2)" }}>
           <i className="ti ti-building-off" style={{ fontSize: 36, opacity: 0.35, display: "block", marginBottom: 12 }} />
           Nessun immobile trovato.
         </div>
       )}
 
-      {immobili && immobili.length > 0 && (
-        <div style={{ display: "grid", gap: 8 }}>
-          {immobili.map(im => (
-            <ImmobileCard
-              key={im.id}
-              im={im}
-              condomini={condomini}
-              showCondominio
-              onEdit={() => openEdit(im)}
-              onDetail={() => setSelected(im)}
-              onDeleted={load}
-              onMoved={load}
-            />
-          ))}
+      {immobili && displayed.length > 0 && (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr>
+                <SortTh label="Nome"       k="nome"           {...thProps} />
+                <SortTh label="Tipologia"  k="tipologia"      {...thProps} />
+                <SortTh label="Condominio" k="condominioNome" {...thProps} />
+                <SortTh label="Via / Città" k="citta"         {...thProps} />
+                <SortTh label="Sup. m²"   k="superficie"     {...thProps} style={{ textAlign: "right" }} />
+                <SortTh label="Stato"      k="attivo"         {...thProps} style={{ textAlign: "center" }} />
+                <th style={{ padding: "8px 10px", borderBottom: "1px solid var(--border)", width: 90 }} />
+              </tr>
+            </thead>
+            <tbody>
+              {displayed.map(im => (
+                <tr key={im.id}
+                    onClick={() => setSelected(im)}
+                    style={{ cursor: "pointer", borderBottom: "1px solid var(--border)",
+                             transition: "background 0.1s" }}
+                    onMouseEnter={e => e.currentTarget.style.background = "var(--bg3)"}
+                    onMouseLeave={e => e.currentTarget.style.background = ""}>
+                  <td style={{ padding: "9px 10px", fontWeight: 600 }}>
+                    {im.nome}
+                    {im.codice && <span style={{ fontSize: 11, color: "var(--text2)", marginLeft: 6 }}>{im.codice}</span>}
+                  </td>
+                  <td style={{ padding: "9px 10px", color: "var(--text2)" }}>
+                    {im.tipologia ? TIPOLOGIA_LABEL[im.tipologia] ?? im.tipologia : "—"}
+                  </td>
+                  <td style={{ padding: "9px 10px", color: "var(--text2)" }}>
+                    {im.condominioNome || "—"}
+                  </td>
+                  <td style={{ padding: "9px 10px", color: "var(--text2)" }}>
+                    {[im.via, im.citta].filter(Boolean).join(", ") || "—"}
+                  </td>
+                  <td style={{ padding: "9px 10px", textAlign: "right", color: "var(--text2)" }}>
+                    {im.superficie != null ? im.superficie.toLocaleString("it-IT") : "—"}
+                  </td>
+                  <td style={{ padding: "9px 10px", textAlign: "center" }}>
+                    {im.attivo
+                      ? <Badge label="Attivo"   color="green" />
+                      : <Badge label="Inattivo" color="gray"  />}
+                  </td>
+                  <td style={{ padding: "9px 10px" }} onClick={e => e.stopPropagation()}>
+                    <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+                      <Btn size="sm" variant="ghost" title="Modifica" onClick={() => openEdit(im)}>
+                        <i className="ti ti-pencil" />
+                      </Btn>
+                      <ImmobileDeleteBtn im={im} onDeleted={load} />
+                      <Btn size="sm" variant="ghost" title="Dettaglio" onClick={() => setSelected(im)}>
+                        <i className="ti ti-chevron-right" />
+                      </Btn>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
@@ -1018,6 +1104,59 @@ function ImmobiliSection({ condomini }) {
         />
       )}
     </div>
+  );
+}
+
+// ── Pulsante elimina inline per la riga tabella ───────────────────────────────
+function ImmobileDeleteBtn({ im, onDeleted }) {
+  const [confirm,  setConfirm]  = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [delErr,   setDelErr]   = useState(null);
+
+  async function handleDelete() {
+    setDeleting(true);
+    setDelErr(null);
+    try {
+      await immobiliV2.elimina(im.id);
+      setConfirm(false);
+      onDeleted?.();
+    } catch (e) {
+      setDelErr(e.message);
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <>
+      <Btn size="sm" variant="ghost" title="Elimina" onClick={() => setConfirm(true)}>
+        <i className="ti ti-trash" style={{ color: "var(--red)" }} />
+      </Btn>
+      {confirm && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
+                      display: "flex", alignItems: "center", justifyContent: "center", zIndex: 500 }}>
+          <div style={{ background: "var(--bg2)", border: "1px solid var(--red)", borderRadius: 12,
+                        padding: 24, maxWidth: 400, width: "100%" }}>
+            <p style={{ fontWeight: 600, marginBottom: 8 }}>Eliminare "{im.nome}"?</p>
+            <p style={{ fontSize: 13, color: "var(--text2)", marginBottom: 16 }}>
+              Operazione irreversibile. Se l'immobile ha ruoli, movimenti o regole associate
+              non potrà essere eliminato.
+            </p>
+            {delErr && (
+              <p style={{ fontSize: 12, color: "var(--red)", marginBottom: 12,
+                          padding: "8px 10px", borderRadius: 7, background: "rgba(239,68,68,0.08)" }}>
+                {delErr}
+              </p>
+            )}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <Btn variant="ghost" onClick={() => { setConfirm(false); setDelErr(null); }}>Annulla</Btn>
+              <Btn variant="danger" disabled={deleting} onClick={handleDelete}>
+                {deleting ? "Elimino…" : <><i className="ti ti-trash" /> Elimina</>}
+              </Btn>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

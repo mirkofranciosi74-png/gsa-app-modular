@@ -143,6 +143,49 @@ export function makePersonaRepository(pool) {
       `, [personaId, legacyTipo, legacyId]);
     },
 
+    async dipendenze(id) {
+      const rows = await q(`
+        SELECT
+          (SELECT COUNT(*) FROM v2.ruolo_persona WHERE persona_id = $1::UUID)                                AS n_ruoli,
+          (SELECT COUNT(*) FROM v2.ruolo_persona WHERE persona_id = $1::UUID
+             AND (validita_da IS NULL OR validita_da <= CURRENT_DATE)
+             AND (validita_a  IS NULL OR validita_a  >= CURRENT_DATE))                                       AS n_ruoli_attivi,
+          (SELECT COUNT(*) FROM v2.fatto_economico WHERE persona_id         = $1::UUID
+                                                     OR soggetto_pagante_id = $1::UUID
+                                                     OR soggetto_incassante_id = $1::UUID)                   AS n_fatti,
+          (SELECT COUNT(*) FROM v2.regola_riparto_dettaglio WHERE persona_id = $1::UUID)                     AS n_regole_riparto,
+          (SELECT COUNT(*) FROM v2.persona_condominio WHERE persona_id = $1::UUID)                           AS n_condomini,
+          (SELECT COUNT(*) FROM archivio_associazioni WHERE entita_tipo = 'persona' AND entita_id = $1::UUID) AS n_archivio
+      `, [id]);
+      const r = rows[0];
+      return {
+        nRuoli:         Number(r.n_ruoli),
+        nRuoliAttivi:   Number(r.n_ruoli_attivi),
+        nFatti:         Number(r.n_fatti),
+        nRegoleRiparto: Number(r.n_regole_riparto),
+        nCondomini:     Number(r.n_condomini),
+        nArchivio:      Number(r.n_archivio),
+      };
+    },
+
+    async elimina(id) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query(`DELETE FROM v2.persona_condominio WHERE persona_id = $1::UUID`, [id]);
+        await client.query(`DELETE FROM v2.ruolo_persona       WHERE persona_id = $1::UUID`, [id]);
+        await client.query(`DELETE FROM v2.persona_legacy      WHERE persona_id = $1::UUID`, [id]);
+        const res = await client.query(`DELETE FROM v2.persona WHERE id = $1::UUID RETURNING id`, [id]);
+        if (!res.rows[0]) throw new NotFoundError("Persona", id);
+        await client.query("COMMIT");
+      } catch (e) {
+        await client.query("ROLLBACK");
+        throw e;
+      } finally {
+        client.release();
+      }
+    },
+
     async quadratura() {
       const rows = await q(`
         SELECT

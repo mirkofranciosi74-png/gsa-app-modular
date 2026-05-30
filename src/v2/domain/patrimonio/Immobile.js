@@ -12,6 +12,7 @@ export class Immobile {
     superficie,
     percentuale_condominio,
     millesimi_condominio,
+    tipologia,
     note,
     validita_da,
     validita_a,
@@ -43,6 +44,7 @@ export class Immobile {
                                   ? Number(percentuale_condominio) : null;
     this.millesimiCondominio   = millesimi_condominio != null
                                   ? Number(millesimi_condominio) : null;
+    this.tipologia             = tipologia?.trim()            || null;
     this.note                  = note?.trim()                || null;
     this.validitaDa            = validita_da                 || null;
     this.validitaA             = validita_a                  || null;
@@ -66,6 +68,7 @@ export class Immobile {
       superficie:            this.superficie,
       percentualeCondominio: this.percentualeCondominio,
       millesimiCondominio:   this.millesimiCondominio,
+      tipologia:             this.tipologia,
       note:                  this.note,
       validitaDa:            this.validitaDa,
       validitaA:             this.validitaA,

@@ -32,6 +32,11 @@ import { makeRuoloRoutes }      from "./patrimonio/ruoloRoutes.js";
 import { makeFattoRoutes }      from "./economia/fattoRoutes.js";
 import { makeTipologiaRoutes }  from "./economia/tipologiaRoutes.js";
 import { makeRipartoRoutes }    from "./riparto/ripartoRoutes.js";
+import { makeGrigliaRoutes }          from "./economia/grigliaRoutes.js";
+import { makeImportazioneV2Routes }    from "./economia/importazioneV2Routes.js";
+import { makeAdminV2Routes }           from "./admin/adminV2Routes.js";
+import { reportV2Router }              from "./economia/reportV2Routes.js";
+import { archivioV2Router, archivioV2TipiRouter } from "./archivio/archivioV2Routes.js";
 
 // ── Wire repositories ───────────────────────────────────────────────────────
 const personaRepo             = makePersonaRepository(pool);
@@ -57,6 +62,9 @@ const ruoloRoutes      = makeRuoloRoutes({ patrimonioService });
 const fattoRoutes      = makeFattoRoutes({ economiaService });
 const tipologiaRoutes  = makeTipologiaRoutes({ economiaService });
 const ripartoRoutes    = makeRipartoRoutes({ ripartoService });
+const grigliaRoutes         = makeGrigliaRoutes();
+const importazioneV2Routes  = makeImportazioneV2Routes();
+const adminV2Routes         = makeAdminV2Routes();
 
 // ── Router principale ───────────────────────────────────────────────────────
 export const v2DddRouter = Router();
@@ -70,6 +78,12 @@ v2DddRouter.use("/ruoli",      ruoloRoutes);
 v2DddRouter.use("/fatti",      fattoRoutes);
 v2DddRouter.use("/tipologie",  tipologiaRoutes);
 v2DddRouter.use("/riparto",    ripartoRoutes);
+v2DddRouter.use("/griglia",        grigliaRoutes);
+v2DddRouter.use("/importazione",   importazioneV2Routes);
+v2DddRouter.use("/admin",          adminV2Routes);
+v2DddRouter.use("/report",         reportV2Router);
+v2DddRouter.use("/archivio-tipi",  archivioV2TipiRouter);
+v2DddRouter.use("/archivio",       archivioV2Router);
 
 // ── Migration status (admin only) ───────────────────────────────────────────
 import { h } from "../../shared/middleware.js";

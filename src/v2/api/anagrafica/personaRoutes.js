@@ -40,6 +40,15 @@ export function makePersonaRoutes({ personaService }) {
     res.json(persona.toJSON());
   }));
 
+  router.get("/:id/dipendenze", requireRole("admin"), h(async (req, res) => {
+    res.json(await personaService.dipendenze(req.params.id));
+  }));
+
+  router.delete("/:id", requireRole("admin"), h(async (req, res) => {
+    await personaService.elimina(req.params.id);
+    res.status(204).end();
+  }));
+
   router.post("/:id/legacy-ref", requireRole("admin"), h(async (req, res) => {
     const { tipo, legacyId } = req.body;
     const persona = await personaService.aggiungiLegacyRef(req.params.id, tipo, legacyId);

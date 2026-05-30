@@ -13,16 +13,19 @@ export function makeFattoEconomicoRepository(pool) {
 
   const BASE_SELECT = `
     SELECT fe.*,
-           i.nome  AS immobile_nome,
+           i.nome      AS immobile_nome,
+           i.tipologia AS immobile_tipologia,
            c.nome  AS condominio_nome,
            p.nome  AS persona_nome,  p.cognome AS persona_cognome,
-           sp.nome AS soggetto_pagante_nome,
+           sp.nome AS soggetto_pagante_nome,   sp.cognome AS soggetto_pagante_cognome,
+           si.nome AS soggetto_incassante_nome, si.cognome AS soggetto_incassante_cognome,
            ts.descrizione AS tipo_spesa_desc, ts.categoria AS tipo_spesa_cat
     FROM v2.fatto_economico fe
     LEFT JOIN v2.immobile  i  ON i.id  = fe.immobile_id
     LEFT JOIN v2.condominio c ON c.id  = fe.condominio_id
     LEFT JOIN v2.persona   p  ON p.id  = fe.persona_id
     LEFT JOIN v2.persona   sp ON sp.id = fe.soggetto_pagante_id
+    LEFT JOIN v2.persona   si ON si.id = fe.soggetto_incassante_id
     LEFT JOIN tipi_spesa   ts ON ts.id = fe.tipo_spesa_id
   `;
 
@@ -77,7 +80,7 @@ export function makeFattoEconomicoRepository(pool) {
     async create(dati) {
       const rows = await q(`
         INSERT INTO v2.fatto_economico (
-          immobile_id, condominio_id, persona_id, soggetto_pagante_id,
+          immobile_id, condominio_id, persona_id, soggetto_pagante_id, soggetto_incassante_id,
           tipo, tipo_spesa_id,
           importo, segno,
           nome, descrizione, note, fornitore, numero_doc, numero_fattura,
@@ -87,18 +90,19 @@ export function makeFattoEconomicoRepository(pool) {
           file_hash, file_path, nome_file, mime_type,
           legacy_tipo, legacy_id
         ) VALUES (
-          $1,$2,$3,$4, $5,$6, $7,$8,
-          $9,$10,$11,$12,$13,$14,
-          $15,$16,
-          $17,$18,$19,$20, $21,$22,
-          $23,$24,$25,$26,
-          $27,$28
+          $1,$2,$3,$4,$5, $6,$7, $8,$9,
+          $10,$11,$12,$13,$14,$15,
+          $16,$17,
+          $18,$19,$20,$21, $22,$23,
+          $24,$25,$26,$27,
+          $28,$29
         ) RETURNING *
       `, [
         dati.immobile_id     || dati.immobileId     || null,
         dati.condominio_id   || dati.condominioId   || null,
         dati.persona_id      || dati.personaId      || null,
-        dati.soggetto_pagante_id || dati.soggettoPaganteId || null,
+        dati.soggetto_pagante_id    || dati.soggettoPaganteId    || null,
+        dati.soggetto_incassante_id || dati.soggettoIncassanteId || null,
         dati.tipo,
         dati.tipo_spesa_id   || dati.tipoSpesaId    || null,
         Number(dati.importo),
@@ -131,35 +135,37 @@ export function makeFattoEconomicoRepository(pool) {
       // leggi prima per avere i valori attuali da usare in COALESCE
       const rows = await q(`
         UPDATE v2.fatto_economico SET
-          immobile_id          = COALESCE($1, immobile_id),
-          condominio_id        = COALESCE($2, condominio_id),
-          persona_id           = $3,
-          soggetto_pagante_id  = $4,
-          tipo                 = COALESCE($5, tipo),
-          tipo_spesa_id        = $6,
-          importo              = COALESCE($7, importo),
-          segno                = COALESCE($8, segno),
-          nome                 = $9,
-          descrizione          = $10,
-          note                 = $11,
-          fornitore            = $12,
-          numero_doc           = $13,
-          numero_fattura       = $14,
-          periodicita          = COALESCE($15, periodicita),
-          stato                = COALESCE($16, stato),
-          periodo_da           = $17,
-          periodo_a            = $18,
-          rif_da               = $19,
-          rif_a                = $20,
-          data_evento          = $21,
-          data_pagamento       = $22
-        WHERE id = $23
+          immobile_id             = COALESCE($1,  immobile_id),
+          condominio_id           = COALESCE($2,  condominio_id),
+          persona_id              = $3,
+          soggetto_pagante_id     = $4,
+          soggetto_incassante_id  = $5,
+          tipo                    = COALESCE($6,  tipo),
+          tipo_spesa_id           = $7,
+          importo                 = COALESCE($8,  importo),
+          segno                   = COALESCE($9,  segno),
+          nome                    = $10,
+          descrizione             = $11,
+          note                    = $12,
+          fornitore               = $13,
+          numero_doc              = $14,
+          numero_fattura          = $15,
+          periodicita             = COALESCE($16, periodicita),
+          stato                   = COALESCE($17, stato),
+          periodo_da              = $18,
+          periodo_a               = $19,
+          rif_da                  = $20,
+          rif_a                   = $21,
+          data_evento             = $22,
+          data_pagamento          = $23
+        WHERE id = $24
         RETURNING *
       `, [
         dati.immobile_id    || dati.immobileId    || null,
         dati.condominio_id  || dati.condominioId  || null,
         dati.persona_id     || dati.personaId     || null,
-        dati.soggetto_pagante_id || dati.soggettoPaganteId || null,
+        dati.soggetto_pagante_id    || dati.soggettoPaganteId    || null,
+        dati.soggetto_incassante_id || dati.soggettoIncassanteId || null,
         dati.tipo            || null,
         dati.tipo_spesa_id  || dati.tipoSpesaId  || null,
         dati.importo != null ? Number(dati.importo) : null,
@@ -187,6 +193,28 @@ export function makeFattoEconomicoRepository(pool) {
     async remove(id) {
       const rows = await q(`DELETE FROM v2.fatto_economico WHERE id=$1 RETURNING id`, [id]);
       if (!rows[0]) throw new NotFoundError("FattoEconomico", id);
+    },
+
+    async updateBulk(ids, dati) {
+      if (!ids?.length) return { updated: 0 };
+      const sets   = [];
+      const params = [];
+      const add = (col, val) => { params.push(val); sets.push(`${col} = $${params.length}`); };
+      if (dati.stato        !== undefined) add("stato",                  dati.stato        || null);
+      if (dati.tipoSpesaId  !== undefined) add("tipo_spesa_id",          dati.tipoSpesaId  || null);
+      if (dati.immobileId   !== undefined) add("immobile_id",            dati.immobileId   || null);
+      if (dati.condominioId !== undefined) add("condominio_id",          dati.condominioId || null);
+      if (dati.periodicita  !== undefined) add("periodicita",            dati.periodicita  || null);
+      if (dati.soggettoPaganteId !== undefined) add("soggetto_pagante_id", dati.soggettoPaganteId || null);
+      if (sets.length === 0) return { updated: 0 };
+      sets.push("updated_at = NOW()");
+      params.push(ids);
+      const rows = await q(
+        `UPDATE v2.fatto_economico SET ${sets.join(", ")}
+         WHERE id = ANY($${params.length}::UUID[]) RETURNING id`,
+        params
+      );
+      return { updated: rows.length };
     },
 
     // ── FILE PDF ──────────────────────────────────────────────────────────────

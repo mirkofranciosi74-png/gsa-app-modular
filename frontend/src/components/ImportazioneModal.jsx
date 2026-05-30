@@ -9,11 +9,15 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { importazioneApi, associazioniApi, tipiVersamentoApi, tipiSpesaApi } from "../api.js";
+import { importazioneApi, tipiVersamentoApi, tipiSpesaApi } from "../api.js";
 import { Modal, Btn, Field } from "./ui.jsx";
 import { euro, toITdate, mesL } from "../utils/formatters.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+function defaultPropId(app) {
+  return app?.default_proprietario?.id || null;
+}
 
 function badgeColor(c) {
   if (c >= 90) return { bg: "rgba(34,197,94,0.18)",  color: "var(--green)" };
@@ -57,18 +61,19 @@ function RigaRevisione({ riga, idx, appartamenti, tipiVersamento, regola, onUpda
   const appSel = appartamenti.find(a => String(a.id) === String(riga.appartamento_id));
   const comps  = appSel?.componenti || [];
   const bc     = badgeColor(riga.confidenza);
+  const isEntrata = (parseInt(riga.segno) || 1) > 0;
 
   function handleApp(appId) {
-    onUpdate(idx, { appartamento_id: appId, componente_id: "" });
+    const app = appartamenti.find(a => String(a.id) === String(appId));
+    onUpdate(idx, {
+      appartamento_id:             appId,
+      componente_id:               app?.componenti?.[0]?.id || "",
+      incassato_da_proprietario_id: defaultPropId(app)      || "",
+    });
   }
 
   function handleComp(compId) {
     onUpdate(idx, { componente_id: compId });
-    if (riga.appartamento_id && riga.data && compId) {
-      associazioniApi.defaultPerData(riga.appartamento_id, riga.data)
-        .then(r => { if (r?.proprietario_id) onUpdate(idx, { incassato_da_proprietario_id: r.proprietario_id }); })
-        .catch(() => {});
-    }
   }
 
   const rowBg = !riga.includi
@@ -132,14 +137,35 @@ function RigaRevisione({ riga, idx, appartamenti, tipiVersamento, regola, onUpda
         </select>
       </td>
 
-      {/* Inquilino */}
+      {/* Inquilino / Chi paga */}
       <td style={{ padding: "4px 6px", width: 130 }}>
-        <select value={riga.componente_id || ""} onChange={e => handleComp(e.target.value)}
-          style={{ width: "100%", fontSize: 12, padding: "3px 4px" }}
-          disabled={!riga.appartamento_id}>
-          <option value="">— Nessuno —</option>
-          {comps.map(c => <option key={c.id} value={c.id}>{c.cognome || ""} {c.nome || ""}</option>)}
-        </select>
+        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          <div>
+            <div style={{ fontSize: 9, color: "var(--text2)", marginBottom: 1 }}>Chi ha pagato</div>
+            <select value={riga.componente_id || ""} onChange={e => handleComp(e.target.value)}
+              style={{ width: "100%", fontSize: 11, padding: "2px 3px" }}
+              disabled={!riga.appartamento_id}>
+              <option value="">— Nessuno —</option>
+              {comps.map(c => <option key={c.id} value={c.id}>{c.cognome || ""} {c.nome || ""}</option>)}
+            </select>
+          </div>
+          {isEntrata && (
+            <div>
+              <div style={{ fontSize: 9, color: "var(--green)", marginBottom: 1 }}>Chi incassa</div>
+              <input
+                value={
+                  appSel?.default_proprietario
+                    ? `${appSel.default_proprietario.cognome || ""} ${appSel.default_proprietario.nome || ""}`.trim()
+                    : (riga.incassato_da_proprietario_id ? "✓ impostato" : "— nessuno —")
+                }
+                readOnly
+                style={{ width: "100%", fontSize: 11, padding: "2px 3px",
+                         background: "var(--bg2)", color: "var(--text2)", cursor: "default",
+                         border: "1px solid var(--border)", borderRadius: 3 }}
+              />
+            </div>
+          )}
+        </div>
       </td>
 
       {/* Mese rif */}
@@ -667,8 +693,19 @@ export default function ImportazioneModal({ appartamenti, onSaved, onClose }) {
   // ── helpers ────────────────────────────────────────────────────────────────
 
   const updateRiga = useCallback((idx, patch) => {
-    setRighe(prev => prev.map((r, i) => i === idx ? { ...r, ...patch } : r));
-  }, []);
+    setRighe(prev => prev.map((r, i) => {
+      if (i !== idx) return r;
+      const merged = { ...r, ...patch };
+      // quando cambia appartamento, aggiorna label e default
+      if (patch.appartamento_id !== undefined) {
+        const app  = appartamenti.find(a => String(a.id) === String(patch.appartamento_id));
+        const comp = app?.componenti?.[0];
+        if (!patch.componente_id)               merged.componente_id               = comp?.id || "";
+        if (!patch.incassato_da_proprietario_id) merged.incassato_da_proprietario_id = defaultPropId(app) || "";
+      }
+      return merged;
+    }));
+  }, [appartamenti]);
 
   function toggleRegola(idx, checked) {
     setRigheRegola(prev => {
@@ -700,13 +737,20 @@ export default function ImportazioneModal({ appartamenti, onSaved, onClose }) {
     if (!file) return;
     setLoading(true);
     try {
-      const { righe: r } = await importazioneApi.parse(file);
+      const { righe: r, appartamenti: appsFromParse } = await importazioneApi.parse(file);
       if (!r || !r.length) { alert("Nessuna riga valida trovata nel file."); return; }
-      setRighe(r.map(row => ({
-        ...row,
-        tipo_versamento: row.tipo_versamento || "",
-        isDuplicate: false,
-      })));
+      const appsUsed = appsFromParse?.length ? appsFromParse : appartamenti;
+      setRighe(r.map(row => {
+        const app  = appsUsed.find(a => String(a.id) === String(row.appartamento_id));
+        const comp = app?.componenti?.[0];
+        return {
+          ...row,
+          tipo_versamento:             row.tipo_versamento || "",
+          isDuplicate:                 false,
+          componente_id:               row.componente_id  || comp?.id || "",
+          incassato_da_proprietario_id: row.incassato_da_proprietario_id || defaultPropId(app) || "",
+        };
+      }));
       setRigheRegola({});
       setFase(1);
     } catch (e) {
@@ -870,7 +914,7 @@ export default function ImportazioneModal({ appartamenti, onSaved, onClose }) {
                 <th style={{ textAlign: "left", padding: "6px 8px" }}>Descrizione / Match</th>
                 <th style={{ textAlign: "right", padding: "6px 8px" }}>Importo</th>
                 <th style={{ textAlign: "left", padding: "6px 8px" }}>Appartamento</th>
-                <th style={{ textAlign: "left", padding: "6px 8px" }}>Inquilino</th>
+                <th style={{ textAlign: "left", padding: "6px 8px" }}>Chi paga / incassa</th>
                 <th style={{ textAlign: "left", padding: "6px 8px" }}>Mese</th>
                 <th style={{ textAlign: "left", padding: "6px 8px" }}>Tipo</th>
                 <th style={{ textAlign: "center", padding: "6px 4px", width: 52 }}>Match</th>

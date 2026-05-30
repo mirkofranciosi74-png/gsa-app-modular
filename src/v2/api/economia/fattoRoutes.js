@@ -6,9 +6,6 @@ import { requireRole } from "../../shared/authMiddleware.js";
 const up = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: Number(process.env.MAX_FILE_SIZE) || 20971520 },
-  fileFilter: (_req, file, cb) => {
-    cb(null, file.mimetype === "application/pdf" || file.originalname.toLowerCase().endsWith(".pdf"));
-  },
 });
 
 /**
@@ -41,7 +38,7 @@ export function makeFattoRoutes({ economiaService }) {
   }));
 
   router.get("/:id/pdf", h(async (req, res) => {
-    const buf = economiaService.leggiPdfFatto(req.params.id);
+    const buf = await economiaService.leggiPdfFatto(req.params.id);
     if (!buf) return res.status(404).json({ error: "PDF non disponibile" });
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", "inline");
@@ -53,6 +50,13 @@ export function makeFattoRoutes({ economiaService }) {
   router.post("/", requireRole("admin"), h(async (req, res) => {
     const fatto = await economiaService.crea(req.body);
     res.status(201).json(fatto.toJSON());
+  }));
+
+  router.put("/bulk", requireRole("admin"), h(async (req, res) => {
+    const { ids, ...dati } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0)
+      return res.status(400).json({ error: "ids obbligatorio" });
+    res.json(await economiaService.aggiornaBulk(ids, dati));
   }));
 
   router.put("/:id", requireRole("admin"), h(async (req, res) => {
@@ -72,7 +76,7 @@ export function makeFattoRoutes({ economiaService }) {
    * Non salva nulla, risponde con { hash, duplicati: [...] }.
    */
   router.post("/check-hash", up.single("file"), h(async (req, res) => {
-    if (!req.file) return res.status(400).json({ error: "Nessun file" });
+    if (!req.file?.buffer?.length) return res.status(400).json({ error: "Nessun file ricevuto" });
     const excludeId = req.body?.excludeId || null;
     const result = await economiaService.checkHashFile(req.file.buffer, excludeId);
     res.json(result);

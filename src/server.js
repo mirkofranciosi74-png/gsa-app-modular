@@ -1,4 +1,14 @@
 import "dotenv/config";
+import { mkdirSync, existsSync } from "fs";
+import { resolve, join, dirname } from "path";
+import { fileURLToPath } from "url";
+
+// Garantisce che le cartelle di storage esistano prima di qualunque altra operazione
+const __rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+for (const sub of ["storage/pdf", "storage/archivio"]) {
+  const p = join(__rootDir, sub);
+  if (!existsSync(p)) { mkdirSync(p, { recursive: true }); console.log(`[startup] cartella creata: ${p}`); }
+}
 
 process.on("uncaughtException", (err) => {
   console.error("❌ uncaughtException:", err?.message ?? err, err?.stack ?? "");

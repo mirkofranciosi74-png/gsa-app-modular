@@ -40,6 +40,13 @@ export function makeRuoloPersonaRepository(pool) {
       return rows.map(RuoloPersona.fromRow);
     },
 
+    async listAll() {
+      const rows = await q(
+        `${BASE_SELECT} ORDER BY i.nome, rp.ruolo, p.cognome NULLS LAST, p.nome`
+      );
+      return rows.map(RuoloPersona.fromRow);
+    },
+
     async listByPersona(personaId) {
       const rows = await q(
         `${BASE_SELECT} WHERE rp.persona_id = $1 ORDER BY rp.validita_da NULLS FIRST`,
@@ -55,16 +62,31 @@ export function makeRuoloPersonaRepository(pool) {
     },
 
     async create(dati) {
-      const rp = new RuoloPersona(dati);
+      // accetta sia snake_case (DB) sia camelCase (API frontend)
+      const norm = {
+        ...dati,
+        persona_id:         dati.persona_id        || dati.personaId,
+        immobile_id:        dati.immobile_id        || dati.immobileId,
+        validita_da:        dati.validita_da        || dati.validitaDa        || null,
+        validita_a:         dati.validita_a         || dati.validitaA         || null,
+        quota_affitto:      dati.quota_affitto      ?? dati.quotaAffitto,
+        default_flag:       dati.default_flag       ?? dati.defaultFlag       ?? false,
+        default_pagante:    dati.default_pagante    ?? dati.defaultPagante    ?? false,
+        default_incassante: dati.default_incassante ?? dati.defaultIncassante ?? false,
+      };
+      const rp = new RuoloPersona(norm);
       const rows = await q(`
         INSERT INTO v2.ruolo_persona
-          (persona_id, immobile_id, ruolo, validita_da, validita_a, quota, quota_affitto, caparra, default_flag)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+          (persona_id, immobile_id, ruolo, validita_da, validita_a,
+           quota, quota_affitto, caparra,
+           default_flag, default_pagante, default_incassante)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
         RETURNING *
       `, [
         rp.personaId, rp.immobileId, rp.ruolo,
         rp.validitaDa, rp.validitaA,
-        rp.quota, rp.quotaAffitto, rp.caparra, rp.defaultFlag,
+        rp.quota, rp.quotaAffitto, rp.caparra,
+        rp.defaultFlag, rp.defaultPagante, rp.defaultIncassante,
       ]);
       return this.findById(rows[0].id);
     },
@@ -72,21 +94,25 @@ export function makeRuoloPersonaRepository(pool) {
     async update(id, dati) {
       const rows = await q(`
         UPDATE v2.ruolo_persona
-        SET validita_da    = COALESCE($1, validita_da),
-            validita_a     = COALESCE($2, validita_a),
-            quota          = COALESCE($3, quota),
-            quota_affitto  = COALESCE($4, quota_affitto),
-            caparra        = COALESCE($5, caparra),
-            default_flag   = COALESCE($6, default_flag)
-        WHERE id = $7
+        SET validita_da       = COALESCE($1,  validita_da),
+            validita_a        = COALESCE($2,  validita_a),
+            quota             = COALESCE($3,  quota),
+            quota_affitto     = COALESCE($4,  quota_affitto),
+            caparra           = COALESCE($5,  caparra),
+            default_flag      = COALESCE($6,  default_flag),
+            default_pagante   = COALESCE($7,  default_pagante),
+            default_incassante= COALESCE($8,  default_incassante)
+        WHERE id = $9
         RETURNING *
       `, [
-        dati.validitaDa || null,
-        dati.validitaA  || null,
-        dati.quota      ?? null,
-        dati.quotaAffitto ?? null,
-        dati.caparra    ?? null,
-        dati.defaultFlag ?? null,
+        dati.validitaDa        || null,   // "" → null (DATE non accetta stringa vuota)
+        dati.validitaA         || null,
+        dati.quota             ?? null,
+        dati.quotaAffitto      ?? null,
+        dati.caparra           ?? null,
+        dati.defaultFlag       ?? null,
+        dati.defaultPagante    ?? null,
+        dati.defaultIncassante ?? null,
         id,
       ]);
       if (!rows[0]) throw new NotFoundError("RuoloPersona", id);
@@ -101,26 +127,35 @@ export function makeRuoloPersonaRepository(pool) {
     /**
      * Verifica che la somma delle quote proprietari = 100% per un dato periodo.
      */
-    async verificaQuote(immobileId, da, a) {
+    async verificaQuote(immobileId) {
       const rows = await q(`
         SELECT
           rp.ruolo,
-          ROUND(SUM(COALESCE(rp.quota, 0)), 4) AS somma_quota,
-          COUNT(*) AS n_ruoli,
-          EVERY(rp.quota IS NOT NULL) AS tutte_valorizzate
+          COUNT(*) AS n_ruoli_totale,
+          COUNT(*) FILTER (WHERE
+            (rp.validita_da IS NULL OR rp.validita_da <= CURRENT_DATE) AND
+            (rp.validita_a  IS NULL OR rp.validita_a  >= CURRENT_DATE)
+          ) AS n_ruoli_attivi,
+          COALESCE(ROUND(SUM(rp.quota) FILTER (WHERE
+            (rp.validita_da IS NULL OR rp.validita_da <= CURRENT_DATE) AND
+            (rp.validita_a  IS NULL OR rp.validita_a  >= CURRENT_DATE)
+          ), 4), 0) AS somma_quota_attivi,
+          BOOL_AND(rp.quota IS NOT NULL) FILTER (WHERE
+            (rp.validita_da IS NULL OR rp.validita_da <= CURRENT_DATE) AND
+            (rp.validita_a  IS NULL OR rp.validita_a  >= CURRENT_DATE)
+          ) AS tutte_valorizzate_attivi
         FROM v2.ruolo_persona rp
         WHERE rp.immobile_id = $1
-          AND ($2::DATE IS NULL OR rp.validita_da IS NULL OR rp.validita_da <= $2)
-          AND ($3::DATE IS NULL OR rp.validita_a  IS NULL OR rp.validita_a  >= $3)
         GROUP BY rp.ruolo
-      `, [immobileId, da || null, a || null]);
+      `, [immobileId]);
 
       return rows.map(r => ({
-        ruolo:  r.ruolo,
-        sommaQuota: Number(r.somma_quota),
-        nRuoli: Number(r.n_ruoli),
-        tutteValorizzate: Boolean(r.tutte_valorizzate),
-        ok: Math.abs(Number(r.somma_quota) - 100) < 0.01,
+        ruolo:             r.ruolo,
+        sommaQuota:        Number(r.somma_quota_attivi),
+        nRuoliAttivi:      Number(r.n_ruoli_attivi),
+        nRuoliTotale:      Number(r.n_ruoli_totale),
+        tutteValorizzate:  r.tutte_valorizzate_attivi !== null ? Boolean(r.tutte_valorizzate_attivi) : true,
+        ok: Math.abs(Number(r.somma_quota_attivi) - 100) < 0.01,
       }));
     },
   };

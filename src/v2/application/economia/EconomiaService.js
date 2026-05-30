@@ -27,6 +27,10 @@ export function makeEconomiaService({ fattoRepo, tipologiaRepo }) {
       return fattoRepo.update(id, dati);
     },
 
+    async aggiornaBulk(ids, dati) {
+      return fattoRepo.updateBulk(ids, dati);
+    },
+
     async rimuovi(id) {
       // Se ha un PDF, eliminalo dal filesystem
       const fatto = await fattoRepo.findById(id);
@@ -140,6 +144,10 @@ export function makeEconomiaService({ fattoRepo, tipologiaRepo }) {
 
     async rimuoviTipologia(id) {
       return tipologiaRepo.remove(id);
+    },
+
+    contaUsoTipologia(id) {
+      return tipologiaRepo.countUso(id);
     },
   };
 }

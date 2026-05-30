@@ -293,13 +293,15 @@ CREATE TABLE IF NOT EXISTS archivio_documenti (
   mime_type         TEXT,
   estensione        TEXT,
   note              TEXT,
+  validita_da       DATE,
+  validita_a        DATE,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS archivio_associazioni (
   id           UUID  PRIMARY KEY DEFAULT gen_random_uuid(),
   documento_id UUID  NOT NULL REFERENCES archivio_documenti(id) ON DELETE CASCADE,
-  entita_tipo  TEXT  NOT NULL CHECK (entita_tipo IN ('appartamento','inquilino','proprietario')),
+  entita_tipo  TEXT  NOT NULL CHECK (entita_tipo IN ('appartamento','inquilino','proprietario','spesa','immobile','persona')),
   entita_id    UUID  NOT NULL,
 
   CONSTRAINT archivio_assoc_uq UNIQUE (documento_id, entita_tipo, entita_id)

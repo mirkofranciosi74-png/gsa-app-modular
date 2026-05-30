@@ -402,12 +402,18 @@ function Archivio() {
   async function openFile(doc) {
     setErrFile(null);
     try {
-      const res = await fetch(archivioApi.fileUrl(doc.id), { method: "HEAD" });
+      const token = localStorage.getItem("gsa_token");
+      const res = await fetch(archivioApi.fileUrl(doc.id), {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       if (!res.ok) { setErrFile(doc.id); return; }
-      window.open(archivioApi.fileUrl(doc.id), "_blank");
-    } catch {
-      setErrFile(doc.id);
-    }
+      const blob    = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl; a.target = "_blank"; a.rel = "noreferrer";
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+    } catch { setErrFile(doc.id); }
   }
 
   const entitaOptions = {

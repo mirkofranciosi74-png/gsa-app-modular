@@ -343,11 +343,13 @@ export const archivioApi = {
       .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); });
   },
 
-  upload: (file, { tipDocId, note, associazioni = [] }) => {
+  upload: (file, { tipDocId, note, validita_da, validita_a, associazioni = [] }) => {
     const fd = new FormData();
     fd.append("file", file);
-    if (tipDocId) fd.append("tipo_documento_id", tipDocId);
-    if (note)     fd.append("note", note);
+    if (tipDocId)    fd.append("tipo_documento_id", tipDocId);
+    if (note)        fd.append("note", note);
+    if (validita_da) fd.append("validita_da", validita_da);
+    if (validita_a)  fd.append("validita_a", validita_a);
     if (associazioni.length)
       fd.append("associazioni", JSON.stringify(associazioni));
     return up("/archivio/upload", fd);
@@ -512,6 +514,18 @@ export const authApi = {
     headers: { "Content-Type": "application/json" },
     body:    JSON.stringify({ ids }),
   }).then(r => r.json()),
+  // ── Restrizioni viewer v2 ──────────────────────────────────────────────────
+  getRestrizioniV2: id => authFetch(`/users/${id}/restrizioni-v2`).then(r => r.json()),
+  setImmobiliV2:    (id, ids) => authFetch(`/users/${id}/immobili-v2`, {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }),
+  }).then(r => r.json()),
+  setInquiliniV2:   (id, ids) => authFetch(`/users/${id}/inquilini-v2`, {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }),
+  }).then(r => r.json()),
+  setProprietariV2: (id, ids) => authFetch(`/users/${id}/proprietari-v2`, {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }),
+  }).then(r => r.json()),
+
   setPassword: (id, password) => authFetch(`/users/${id}/password`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },

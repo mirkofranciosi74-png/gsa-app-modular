@@ -24,7 +24,12 @@ import { PersoneV2 }     from "./v2/tabs/PersoneV2.jsx";
 import { PatrimonioV2 }  from "./v2/tabs/PatrimonioV2.jsx";
 import { EconomiaV2 }    from "./v2/tabs/EconomiaV2.jsx";
 import { RipartoV2 }     from "./v2/tabs/RipartoV2.jsx";
-import { QuadraturaV2 }  from "./v2/tabs/QuadraturaV2.jsx";
+import { GrigliaV2 }     from "./v2/tabs/GrigliaV2.jsx";
+import { DashboardV2 }   from "./v2/tabs/DashboardV2.jsx";
+import { AdminV2 }       from "./v2/tabs/AdminV2.jsx";
+import { DocumentaleV2 } from "./v2/tabs/DocumentaleV2.jsx";
+import { ReportV2 }      from "./v2/tabs/ReportV2.jsx";
+import { RuoliV2 }       from "./v2/tabs/RuoliV2.jsx";
 
 // ── Accesso per ruolo ──────────────────────────────────────────────────────────
 const TAB_ACCESS = {
@@ -48,7 +53,12 @@ const TAB_ACCESS = {
   v2_patrimonio:     ["admin"],
   v2_economia:       ["admin", "editor"],
   v2_riparto:        ["admin"],
-  v2_quadratura:     ["admin"],
+  v2_griglia:        ["admin", "editor"],
+  v2_dashboard:      ["admin", "editor"],
+  v2_report:         ["admin", "editor", "viewer"],
+  v2_documentale:    ["admin", "editor"],
+  v2_admin:          ["admin"],
+  v2_ruoli:          ["admin"],
 };
 
 // section: "legacy" | "v2"
@@ -69,11 +79,16 @@ const ALL_TABS = [
   { id: "utenti",            label: "Gestione Utenti",    icon: "ti-users-group",      section: "legacy" },
   { id: "ruoli",             label: "Gestione Ruoli",     icon: "ti-shield-lock",      section: "legacy" },
   // ── v2 ────────────────────────────────────────────────────────────────────────
+  { id: "v2_dashboard",      label: "Dashboard",          icon: "ti-layout-dashboard", section: "v2" },
   { id: "v2_persone",        label: "Persone",            icon: "ti-users",            section: "v2" },
   { id: "v2_patrimonio",     label: "Patrimonio",         icon: "ti-building-estate",  section: "v2" },
   { id: "v2_economia",       label: "Economia",           icon: "ti-coin",             section: "v2" },
   { id: "v2_riparto",        label: "Riparto",            icon: "ti-adjustments",      section: "v2" },
-  { id: "v2_quadratura",     label: "Quadratura",         icon: "ti-checkup-list",     section: "v2" },
+  { id: "v2_griglia",        label: "Griglia v2",         icon: "ti-table",            section: "v2" },
+  { id: "v2_report",         label: "Report",             icon: "ti-chart-bar",        section: "v2" },
+  { id: "v2_documentale",    label: "Documentale",        icon: "ti-archive",          section: "v2" },
+  { id: "v2_ruoli",          label: "Gestione Ruoli",     icon: "ti-shield-lock",      section: "v2" },
+  { id: "v2_admin",          label: "Amministrazione",    icon: "ti-settings",         section: "v2" },
 ];
 
 // ── Sidebar item ───────────────────────────────────────────────────────────────
@@ -249,7 +264,12 @@ function AppShell() {
         {activeTab === "v2_patrimonio"     && <PatrimonioV2 />}
         {activeTab === "v2_economia"       && <EconomiaV2 />}
         {activeTab === "v2_riparto"        && <RipartoV2 />}
-        {activeTab === "v2_quadratura"     && <QuadraturaV2 />}
+        {activeTab === "v2_griglia"        && <GrigliaV2 />}
+        {activeTab === "v2_dashboard"      && <DashboardV2 />}
+        {activeTab === "v2_report"         && <ReportV2 />}
+        {activeTab === "v2_documentale"    && <DocumentaleV2 />}
+        {activeTab === "v2_ruoli"          && <RuoliV2 />}
+        {activeTab === "v2_admin"          && <AdminV2 />}
       </main>
     </div>
   );
