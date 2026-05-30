@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { h } from "../../shared/middleware.js";
 import { requireRole } from "../../shared/authMiddleware.js";
+import { getViewerRestrV2 } from "../../shared/viewerRestr.js";
 
 /**
  * @param {{ patrimonioService: any, ripartoService: any, economiaService: any }} deps
@@ -10,11 +11,13 @@ export function makeImmobileRoutes({ patrimonioService, ripartoService, economia
 
   router.get("/", h(async (req, res) => {
     const { condominioId, attivo, soggetto } = req.query;
-    const list = await patrimonioService.listaImmobili({
+    let list = await patrimonioService.listaImmobili({
       condominioId,
       attivo: attivo !== undefined ? attivo === "true" : undefined,
       soggetto: soggetto || undefined,
     });
+    const restr = await getViewerRestrV2(req);
+    if (restr?.immobili) list = list.filter(i => restr.immobili.has(i.id));
     res.json(list.map(i => i.toJSON()));
   }));
 
@@ -44,6 +47,9 @@ export function makeImmobileRoutes({ patrimonioService, ripartoService, economia
 
   // ── Ruoli dell'immobile ──────────────────────────────────────────────────────
   router.get("/:id/ruoli", h(async (req, res) => {
+    const restr = await getViewerRestrV2(req);
+    if (restr?.immobili && !restr.immobili.has(req.params.id))
+      return res.status(403).json({ error: "Accesso non consentito" });
     const ruoli = await patrimonioService.ruoliPerImmobile(req.params.id, {
       ruolo:   req.query.ruolo,
       dataRif: req.query.dataRif,

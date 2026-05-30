@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { h } from "../../shared/middleware.js";
 import { requireRole } from "../../shared/authMiddleware.js";
+import { getViewerRestrV2 } from "../../shared/viewerRestr.js";
 
 /**
  * @param {{ patrimonioService: any }} deps
@@ -9,8 +10,16 @@ export function makeRuoloRoutes({ patrimonioService }) {
   const router = Router();
 
   router.get("/", h(async (req, res) => {
-    const ruoli = await patrimonioService.ruoliTutti();
-    res.json(ruoli.map(r => r.toJSON()));
+    const { immobileId } = req.query;
+    const restr = await getViewerRestrV2(req);
+    if (restr?.immobili && immobileId && !restr.immobili.has(immobileId))
+      return res.status(403).json({ error: "Accesso non consentito" });
+    const ruoli = await patrimonioService.ruoliTutti({ immobileId });
+    let list = ruoli.map(r => r.toJSON());
+    if (restr?.immobili) list = list.filter(r => restr.immobili.has(r.immobileId));
+    if (restr?.inquilini) list = list.filter(r => r.ruolo !== "inquilino" || restr.inquilini.has(r.personaId));
+    if (restr?.proprietari) list = list.filter(r => r.ruolo !== "proprietario" || restr.proprietari.has(r.personaId));
+    res.json(list);
   }));
 
   router.get("/persone/:personaId/ruoli", h(async (req, res) => {

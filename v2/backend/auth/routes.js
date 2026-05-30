@@ -21,12 +21,9 @@ authRouter.get("/me", requireAuth, h(async (req, res) => {
   const user = await userRepo.findById(req.user.id);
   if (!user) return res.status(404).json({ error: "Utente non trovato" });
 
-  const appartamenti = user.ruolo === "viewer"
-    ? await userRepo.getAppartamenti(user.id)
-    : [];
-  const inquilini = user.ruolo === "viewer"
-    ? await userRepo.getInquilini(user.id)
-    : [];
+  const restrizioni = user.ruolo === "viewer"
+    ? await userRepo.getRestrizioniV2(user.id)
+    : { immobili: [], inquilini: [], proprietari: [] };
 
   res.json({
     id:         user.id,
@@ -36,8 +33,9 @@ authRouter.get("/me", requireAuth, h(async (req, res) => {
     avatar_url: user.avatar_url,
     ruolo:      user.ruolo,
     attivo:     user.attivo,
-    allowedAppartamenti: appartamenti.map(a => a.id),
-    allowedInquilini:    inquilini.map(c => c.id),
+    allowedImmobiliV2:    restrizioni.immobili,
+    allowedInquiliniV2:   restrizioni.inquilini,
+    allowedProprietariV2: restrizioni.proprietari,
   });
 }));
 

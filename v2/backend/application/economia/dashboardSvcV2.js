@@ -21,14 +21,15 @@ function _mesiRange(da, a) {
 // ─────────────────────────────────────────────────────────────────────────────
 // DASHBOARD INQUILINI
 // ─────────────────────────────────────────────────────────────────────────────
-export async function dashboardInquiliniV2() {
+export async function dashboardInquiliniV2(allowedIds = null) {
   const periodoA = oggiYM();
 
-  const immobiliRows = await query(`
+  let immobiliRows = await query(`
     SELECT i.id, i.nome FROM v2.immobile i
     WHERE i.attivo = TRUE AND LOWER(i.nome) NOT LIKE '%parma%'
     ORDER BY i.nome
   `);
+  if (allowedIds) immobiliRows = immobiliRows.filter(r => allowedIds.includes(r.id));
 
   const perAppartamento = [];
 
@@ -125,12 +126,13 @@ export async function dashboardInquiliniV2() {
 // ─────────────────────────────────────────────────────────────────────────────
 // DASHBOARD PROPRIETARI
 // ─────────────────────────────────────────────────────────────────────────────
-export async function dashboardProprietariV2() {
+export async function dashboardProprietariV2(allowedIds = null) {
   const periodoA = oggiYM();
 
-  const immobiliRows = await query(`
+  let immobiliRows = await query(`
     SELECT id, nome FROM v2.immobile WHERE attivo = TRUE ORDER BY nome
   `);
+  if (allowedIds) immobiliRows = immobiliRows.filter(r => allowedIds.includes(r.id));
 
   const perAppartamento = [];
 

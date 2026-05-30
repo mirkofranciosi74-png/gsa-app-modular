@@ -2,6 +2,7 @@ import { Router }  from "express";
 import multer       from "multer";
 import { h }        from "../../shared/middleware.js";
 import { requireRole } from "../../shared/authMiddleware.js";
+import { getViewerRestrV2 } from "../../shared/viewerRestr.js";
 
 const up = multer({
   storage: multer.memoryStorage(),
@@ -19,11 +20,16 @@ export function makeFattoRoutes({ economiaService }) {
   router.get("/", h(async (req, res) => {
     const { immobileId, condominioId, tipo, periodoDa, periodoA,
             legacyTipo, stato, tipoSpesaId, q } = req.query;
+    const restr = await getViewerRestrV2(req);
+    if (restr?.immobili && immobileId && !restr.immobili.has(immobileId))
+      return res.json([]);
     const list = await economiaService.lista({
       immobileId, condominioId, tipo, periodoDa, periodoA,
       legacyTipo, stato, tipoSpesaId, q,
     });
-    res.json(list.map(fe => fe.toJSON()));
+    let out = list.map(fe => fe.toJSON());
+    if (restr?.immobili) out = out.filter(fe => !fe.immobileId || restr.immobili.has(fe.immobileId));
+    res.json(out);
   }));
 
   // Deve stare PRIMA di /:id per evitare routing conflicts
