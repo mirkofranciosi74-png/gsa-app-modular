@@ -1,4 +1,4 @@
-import { query } from "../../../shared/db/pool.js";
+import { query } from "../../shared/db/pool.js";
 import { righeGrigliaV2, grigliaProprietariV2 } from "./grigliaSvcV2.js";
 
 const toYM  = v => (v ? String(v).slice(0, 7) : null);

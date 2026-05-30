@@ -10,7 +10,7 @@ import Fuse        from "fuse.js";
 import { h }       from "../../shared/middleware.js";
 import { requireRole } from "../../shared/authMiddleware.js";
 import { query }   from "../../shared/db/pool.js";
-import { parseFile } from "../../../modules/importazione/importatore.js";
+import { parseFile } from "../../modules/importazione/importatore.js";
 
 const up = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 

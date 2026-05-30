@@ -2,8 +2,8 @@ import { Router } from "express";
 import { h } from "../../shared/middleware.js";
 import { query } from "../../shared/db/pool.js";
 import { righeGrigliaV2, grigliaProprietariV2 } from "../../application/economia/grigliaSvcV2.js";
-import { report } from "../../../modules/contabilita/reportSvc.js";
-import { reportSalvatiRepo } from "../../../modules/contabilita/reportSalvatiRepo.js";
+import { report } from "../../modules/contabilita/reportSvc.js";
+import { reportSalvatiRepo } from "../../modules/contabilita/reportSalvatiRepo.js";
 
 // Adatta i dati v2 al formato atteso da reportSvc (costruito sul modello v1)
 function adattaPerReport(immobile, gInq, gProp) {

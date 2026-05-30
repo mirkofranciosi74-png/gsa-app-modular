@@ -1,4 +1,4 @@
-import { query } from "../../../shared/db/pool.js";
+import { query } from "../../shared/db/pool.js";
 import { calcolaRipartoPuro } from "../../domain/riparto/MotoreRiparto.js";
 
 function toYM(v)  { if (!v) return null; return String(v).slice(0, 7); }

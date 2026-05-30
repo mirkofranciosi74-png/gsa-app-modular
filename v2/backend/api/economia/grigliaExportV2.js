@@ -1,7 +1,7 @@
 import ExcelJS         from "exceljs";
 import { createRequire } from "node:module";
 import { leggiPdf }      from "../../shared/storage.js";
-import { listDocumenti } from "../../../modules/archivio/repo.js";
+import { listDocumenti } from "../../modules/archivio/repo.js";
 
 const require = createRequire(import.meta.url);
 let JSZip;
